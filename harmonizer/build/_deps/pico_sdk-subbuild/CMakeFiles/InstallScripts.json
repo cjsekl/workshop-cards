@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/johan/Documents/workshop_system/harmonizer/build/_deps/pico_sdk-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
