@@ -104,7 +104,7 @@ The main code is in `main.cpp`. The `AudioDelay` class inherits from `ComputerCa
 
 ### Key Implementation Details
 
-- **Buffer size**: 96,000 samples (~2 seconds at 48kHz)
+- **Buffer size**: 72,000 samples (1.5 seconds at 48kHz, 144 KB memory)
 - **Delay range**: 100 to 71,000 samples (2ms to 1.5 seconds)
 - **Interpolation**: Linear interpolation with 128x fractional precision
 - **Smoothing**: Exponential smoothing (α=255/256) prevents zipper noise
