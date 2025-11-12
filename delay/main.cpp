@@ -19,14 +19,10 @@ private:
     DelayMode currentMode;
     bool lastSwitchDown;
 
-
     // Filter states
     int32_t hpfState;    // Highpass filter state
     int32_t saturationAccum;  // Accumulator for progressive saturation
 
-    // Aggressive highpass filter to prevent DC offset buildup
-    // Implementation from Goldfish delay - much stronger DC rejection
-    // Coefficient 200 provides aggressive filtering of subsonic frequencies
     int32_t highpass(int32_t input) {
         // One-pole highpass filter with coefficient b = 200
         // *state += (((input - *state) * b) >> 16)
@@ -93,15 +89,12 @@ private:
 
 public:
     AudioDelay() : writeIndex(0), smoothedDelay(0), lastRawControl(0), ledCounter(0),
-                   currentMode(CLEAN), lastSwitchDown(false),
+                   currentMode(CLEAN), lastSwitchDown(SwitchVal() == Down),
                    hpfState(0), saturationAccum(0) {
-        // Note: delayBuffer is zero-initialized automatically for static objects
-        // No need to explicitly clear it
     }
 
 protected:
     void ProcessSample() override {
-        // STEPS 3-7 + MODES: CV modulation, smoothing, interpolation, feedback, dry/wet mixing, and gritty modes
 
         // Read both audio inputs and mix them
         int16_t audioIn1 = AudioIn1();
@@ -114,7 +107,6 @@ protected:
         Switch switchPos = SwitchVal();
         bool switchDown = (switchPos == Down);
         if (switchDown && !lastSwitchDown) {
-            // Switch pressed, cycle to next mode
             currentMode = (DelayMode)((currentMode + 1) % 4);
         }
         lastSwitchDown = switchDown;
@@ -122,7 +114,6 @@ protected:
         // Read X knob for delay time control (0-4095)
         int32_t delayKnob = KnobVal(X);
 
-        // STEP 3: Read CV1 input for delay time modulation (-2048 to 2047)
         int16_t cv1 = CVIn1();
 
         // Combine knob and CV input
@@ -138,15 +129,15 @@ protected:
         if (currentMode != LOFI) {
             const int32_t HYSTERESIS_THRESHOLD = 8;
             int32_t controlDelta = combinedControl - lastRawControl;
-            if (controlDelta < 0) controlDelta = -controlDelta;  // absolute value
+            if (controlDelta < 0) controlDelta = -controlDelta;
 
             if (controlDelta >= HYSTERESIS_THRESHOLD) {
                 lastRawControl = combinedControl;
             } else {
-                combinedControl = lastRawControl;  // Use previous stable value
+                combinedControl = lastRawControl;
             }
         } else {
-            // LOFI mode: no hysteresis, allow raw ADC jitter for lo-fi effect
+            // LOFI mode: no hysteresis
             lastRawControl = combinedControl;
         }
 
@@ -159,13 +150,9 @@ protected:
         int32_t delayRange = MAX_DELAY - MIN_DELAY;
         int32_t targetDelay = MIN_DELAY + (combinedControl * delayRange) / 4095;
 
-        // Convert to 128ths of a sample for interpolation precision
         int32_t targetDelayFine = targetDelay << 7;  // multiply by 128
 
-        // STEP 4: Smooth delay time using exponential smoothing
-        // This prevents clicks and zipper noise when delay time changes
-        // Alpha = 255/256 gives smooth transitions
-        // Use 64-bit arithmetic to prevent overflow with large delay times
+        // Exponential smoothing
         smoothedDelay = (int32_t)(((int64_t)smoothedDelay * 255 + targetDelayFine + 128) >> 8);
 
         // SHIMMER MODE: Fixed pitch shift of +7 semitones (perfect fifth)
@@ -204,7 +191,6 @@ protected:
         // Right channel: offset varies by mode
         int32_t modulatedDelayRight;
         if (currentMode == CLEAN || currentMode == LOFI) {
-            // CLEAN and LOFI modes: mono delay (no stereo offset) to avoid phase cancellation
             modulatedDelayRight = modulatedDelay;
         } else if (currentMode == SATURATION) {
             // SATURATION mode: 1% stereo offset for subtle width
@@ -222,7 +208,7 @@ protected:
         int32_t delayInSamplesLeft = modulatedDelay >> 7;  // Integer part
         int32_t fractionLeft = modulatedDelay & 0x7F;      // Fractional part (0-127)
 
-        // STEP 5: Calculate read indices for linear interpolation (LEFT)
+        // Read indices for linear interpolation (LEFT)
         int32_t readIndex1L = writeIndex - delayInSamplesLeft - 1;
         int32_t readIndex2L = writeIndex - delayInSamplesLeft - 2;
 
@@ -312,27 +298,19 @@ protected:
         // Advance write index with wraparound
         writeIndex = (writeIndex + 1) % MAX_DELAY_SIZE;
 
-        // STEP 7: Dry/wet mixing with Main knob (STEREO)
+        // Dry/wet mixing with Main knob
         int32_t mixKnob = KnobVal(Main);  // 0-4095
 
         // Calculate dry and wet gains
-        // mixKnob = 0: 100% dry, 0% wet
-        // mixKnob = 2048: 50% dry, 50% wet
-        // mixKnob = 4095: 0% dry, 100% wet
         int32_t dryGain = 4095 - mixKnob;
         int32_t wetGain = mixKnob;
 
         // Mix dry (input) and wet (delayed) signals for LEFT channel
-        // No boost - matches Utility-Pair implementation
         int32_t mixedOutputLeft = ((audioIn * dryGain) + (delayedSampleLeft * wetGain) + 2048) >> 12;
-
-        // Hard clipping at output only (matches Utility-Pair)
         clip(mixedOutputLeft);
 
         // Mix dry (input) and wet (delayed) signals for RIGHT channel
         int32_t mixedOutputRight = ((audioIn * dryGain) + (delayedSampleRight * wetGain) + 2048) >> 12;
-
-        // Hard clipping at output only (matches Utility-Pair)
         clip(mixedOutputRight);
 
         int16_t outputLeft = (int16_t)mixedOutputLeft;
@@ -374,10 +352,7 @@ protected:
     }
 };
 
-// Main entry point
 int main() {
-    // Use static to allocate in BSS section, not on stack
-    // This is necessary because the delay buffer is 192KB
     static AudioDelay delay;
     delay.Run();
     return 0;
