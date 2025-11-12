@@ -23,6 +23,13 @@ private:
     int32_t hpfState;    // Highpass filter state
     int32_t saturationAccum;  // Accumulator for progressive saturation
 
+    // Tap tempo state (Pulse In 1)
+    uint32_t lastTapTime;      // Timestamp of last tap (in samples)
+    uint32_t tapInterval;      // Measured interval between taps (in samples)
+    bool tapTempoActive;       // Whether tap tempo is controlling delay time
+    bool lastPulse1;           // Previous pulse state for edge detection
+    uint32_t sampleCounter;    // Global sample counter for timing
+
     int32_t highpass(int32_t input) {
         // One-pole highpass filter with coefficient b = 200
         // *state += (((input - *state) * b) >> 16)
@@ -90,7 +97,9 @@ private:
 public:
     AudioDelay() : writeIndex(0), smoothedDelay(0), lastRawControl(0), ledCounter(0),
                    currentMode(CLEAN), lastSwitchDown(SwitchVal() == Down),
-                   hpfState(0), saturationAccum(0) {
+                   hpfState(0), saturationAccum(0),
+                   lastTapTime(0), tapInterval(24000), tapTempoActive(false),
+                   lastPulse1(false), sampleCounter(0) {
     }
 
 protected:
@@ -110,6 +119,29 @@ protected:
             currentMode = (DelayMode)((currentMode + 1) % 4);
         }
         lastSwitchDown = switchDown;
+
+        // TAP TEMPO: Pulse In 1 sets delay time rhythmically
+        bool pulse1 = PulseIn1();
+        if (pulse1 && !lastPulse1) {
+            // Rising edge detected - new tap
+            uint32_t timeSinceLastTap = sampleCounter - lastTapTime;
+
+            // Only accept taps within reasonable range (50ms to 3 seconds)
+            // 50ms = 2400 samples, 3s = 144000 samples
+            if (timeSinceLastTap >= 2400 && timeSinceLastTap <= 144000) {
+                tapInterval = timeSinceLastTap;
+                tapTempoActive = true;
+            }
+            lastTapTime = sampleCounter;
+        }
+        lastPulse1 = pulse1;
+
+        // Timeout: If no tap for 5 seconds, return to knob control
+        if (tapTempoActive && (sampleCounter - lastTapTime) > 240000) {
+            tapTempoActive = false;
+        }
+
+        sampleCounter++;
 
         // Read X knob for delay time control (0-4095)
         int32_t delayKnob = KnobVal(X);
@@ -146,9 +178,19 @@ protected:
         const int32_t MIN_DELAY = 100;
         const int32_t MAX_DELAY = 71000;
 
-        // Linear mapping to delay time
-        int32_t delayRange = MAX_DELAY - MIN_DELAY;
-        int32_t targetDelay = MIN_DELAY + (combinedControl * delayRange) / 4095;
+        // Calculate delay time
+        int32_t targetDelay;
+        if (tapTempoActive) {
+            // Tap tempo mode: Use measured tap interval
+            // Clamp to valid delay range
+            targetDelay = tapInterval;
+            if (targetDelay < MIN_DELAY) targetDelay = MIN_DELAY;
+            if (targetDelay > MAX_DELAY) targetDelay = MAX_DELAY;
+        } else {
+            // Manual mode: Use knob + CV
+            int32_t delayRange = MAX_DELAY - MIN_DELAY;
+            targetDelay = MIN_DELAY + (combinedControl * delayRange) / 4095;
+        }
 
         int32_t targetDelayFine = targetDelay << 7;  // multiply by 128
 
@@ -293,7 +335,13 @@ protected:
         if (filteredSignal > 2047) filteredSignal = 2047;
         if (filteredSignal < -2047) filteredSignal = -2047;
 
-        delayBuffer[writeIndex] = (int16_t)filteredSignal;
+        // FREEZE/HOLD: Pulse In 2 freezes the delay buffer
+        // When high: Stop writing new audio, existing delays continue to feedback
+        // When low: Normal recording resumes
+        bool freezeActive = PulseIn2();
+        if (!freezeActive) {
+            delayBuffer[writeIndex] = (int16_t)filteredSignal;
+        }
 
         // Advance write index with wraparound
         writeIndex = (writeIndex + 1) % MAX_DELAY_SIZE;

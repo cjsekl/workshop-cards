@@ -8,6 +8,8 @@ An audio delay effect for the Music Thing Modular Workshop System Computer Card.
 - Feedback control with infinite sustain capability
 - Dry/wet mix
 - CV modulation inputs for delay time and feedback
+- **Tap tempo** - tap rhythm to set delay time musically
+- **Freeze/hold** - gate input to freeze buffer and sustain repeats
 - Four delay modes: CLEAN, SATURATION, SHIMMER, LOFI
 - Stereo output with mode-dependent width
 - DC offset filtering to prevent buildup
@@ -17,10 +19,10 @@ An audio delay effect for the Music Thing Modular Workshop System Computer Card.
 ### Inputs
 - **Audio In 1**: Main audio input
 - **Audio In 2**: Secondary audio input
-- **CV In 1**: Delay time
-- **CV In 2**: Feedback amount
-- **Pulse In 1**: Trigger/gate input (UNUSED)
-- **Pulse In 2**: Trigger/gate input (UNUSED)
+- **CV In 1**: Delay time modulation
+- **CV In 2**: Feedback amount modulation
+- **Pulse In 1**: Tap tempo - tap rhythm to set delay time
+- **Pulse In 2**: Freeze/hold - gate high freezes buffer, repeats sustain
 
 ### Outputs
 - **Audio Out 1**: Processed audio output (LEFT)
@@ -43,6 +45,24 @@ An audio delay effect for the Music Thing Modular Workshop System Computer Card.
 - **LED 3**: SATURATION mode indicator
 - **LED 4**: SHIMMER mode indicator
 - **LED 5**: LOFI mode indicator
+
+## Pulse Input Features
+
+### Tap Tempo (Pulse In 1)
+Send rhythmic triggers to set delay time musically:
+- Tap a rhythm on Pulse In 1 to set delay time to match
+- Accepts tap intervals from 50ms to 3 seconds
+- Overrides X knob and CV1 when active
+- Returns to manual control after 5 seconds of no taps
+- Perfect for syncing delays to your music's tempo
+
+### Freeze/Hold (Pulse In 2)
+Freeze the delay buffer while audio continues to repeat:
+- Gate high: Stops recording new audio, existing delays continue to feedback
+- Gate low: Normal recording resumes
+- Creates infinite sustain pad textures
+- Great for ambient and experimental music
+- Current repeats evolve through feedback and mode effects
 
 ## Delay Modes
 
