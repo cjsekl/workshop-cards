@@ -38,29 +38,25 @@ private:
         return input - hpfState;
     }
 
-    // Hard clipping for output stage (matches Utility-Pair implementation)
+    // Hard clipping for output stage
     void clip(int32_t &a) {
         if (a < -2047) a = -2047;
         if (a > 2047) a = 2047;
     }
 
-    // Gentle tube-like saturation with subtle harmonic enhancement
-    // Adds warmth and fullness while maintaining clarity
-    // Progressive drive increases harmonic content with each feedback iteration
     int32_t warmSaturate(int32_t input) {
         // Progressive saturation - slowly track signal energy
-        // Very gentle accumulation for subtle effect buildup
         int32_t absInput = (input < 0) ? -input : input;
-        saturationAccum = ((252 * saturationAccum + 128) >> 8) + ((absInput + 128) >> 8);  // Very slow accumulator
+        saturationAccum = ((252 * saturationAccum + 128) >> 8) + ((absInput + 128) >> 8);
 
         // Moderate drive that increases with feedback iterations
         // Base drive ~1.46x at start, increased for more saturation character
-        int32_t drive = 3000 + ((saturationAccum + 4) >> 3);  // Stronger progressive component
+        int32_t drive = 3000 + ((saturationAccum + 4) >> 3);
 
         // Scale input by drive
         int64_t driven = ((int64_t)input * drive + 1024) >> 11;
 
-        // Symmetric soft saturation for even-order harmonics (warmth & fullness)
+        // Symmetric soft saturation for even-order harmonics
         // Using a tanh-like curve approximation: y = x / (1 + x²/threshold²)
         // This adds harmonics without harsh clipping
         int32_t output;
@@ -299,7 +295,7 @@ protected:
         if (combinedFeedback > 4095) combinedFeedback = 4095;
         if (combinedFeedback < 0) combinedFeedback = 0;
 
-        // Quadratic crossfade between input and feedback (like Utility-Pair)
+        // Quadratic crossfade between input and feedback
         // As feedback increases, input decreases - prevents level buildup
         // inputGain: high when feedback is low, low when feedback is high
         // feedbackGain: low when feedback is low, high when feedback is high
@@ -317,8 +313,6 @@ protected:
         // APPLY MODE EFFECTS to feedback signal
         if (currentMode == SATURATION) {
             // SATURATION Mode: Progressive warm saturation
-            // Adds warmth, harmonics, and gentle compression
-            // Each repeat gets progressively more saturated
             feedbackSignal = warmSaturate(feedbackSignal);
         }
         // CLEAN and LOFI modes: no processing, pass through as-is

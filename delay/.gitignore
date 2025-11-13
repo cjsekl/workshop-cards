@@ -1,5 +1,7 @@
 # Build directory
 build/
+# Exception: track the final .uf2 file
+!build/delay.uf2
 
 # Pico SDK
 pico-sdk/
@@ -16,6 +18,5 @@ pico-sdk/
 *.elf
 *.bin
 *.hex
-*.uf2
 *.map
 *.dis
