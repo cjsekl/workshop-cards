@@ -5,7 +5,7 @@ class AudioDelay : public ComputerCard
 {
 private:
     // Delay buffer parameters
-    static const int MAX_DELAY_SIZE = 72000;  // 1.5 seconds at 48kHz
+    static const int MAX_DELAY_SIZE = 96000;  // 2.0 seconds at 48kHz
     int16_t delayBuffer[MAX_DELAY_SIZE];
     int writeIndex;
 
@@ -20,15 +20,21 @@ private:
     bool lastSwitchDown;
 
     // Filter states
-    int32_t hpfState;    // Highpass filter state
+    int32_t hpfState;    // Highpass filter state for DC offset removal
+    int32_t shimmerHpfState;  // Highpass filter state for shimmer brightness
     int32_t saturationAccum;  // Accumulator for progressive saturation
 
     // Tap tempo state (Pulse In 1)
     uint32_t lastTapTime;      // Timestamp of last tap (in samples)
     uint32_t tapInterval;      // Measured interval between taps (in samples)
+    uint32_t tapTimeout;       // Timeout deadline for tap tempo (overflow-safe)
     bool tapTempoActive;       // Whether tap tempo is controlling delay time
     bool lastPulse1;           // Previous pulse state for edge detection
     uint32_t sampleCounter;    // Global sample counter for timing
+
+    // Freeze smoothing state
+    int32_t freezeSmoothL;     // Smoothing state for left channel during freeze
+    int32_t freezeSmoothR;     // Smoothing state for right channel during freeze
 
     int32_t highpass(int32_t input) {
         // One-pole highpass filter with coefficient b = 200
@@ -38,6 +44,14 @@ private:
         return input - hpfState;
     }
 
+    int32_t shimmerHighpass(int32_t input) {
+        // Aggressive highpass filter for shimmer mode to emphasize upper harmonics
+        // Higher coefficient (1200) = more aggressive filtering, brighter sound
+        // Emphasizes the perfect fifth harmonics and reduces muddy low end
+        shimmerHpfState += (((input - shimmerHpfState) * 1200 + 32768) >> 16);
+        return input - shimmerHpfState;
+    }
+
     // Hard clipping for output stage
     void clip(int32_t &a) {
         if (a < -2047) a = -2047;
@@ -45,34 +59,35 @@ private:
     }
 
     int32_t warmSaturate(int32_t input) {
-        // Progressive saturation - slowly track signal energy
+        // Progressive saturation - slowly track signal energy with cap
         int32_t absInput = (input < 0) ? -input : input;
         saturationAccum = ((252 * saturationAccum + 128) >> 8) + ((absInput + 128) >> 8);
 
-        // Moderate drive that increases with feedback iterations
-        // Base drive ~1.46x at start, increased for more saturation character
-        int32_t drive = 3000 + ((saturationAccum + 4) >> 3);
+        // Cap accumulator to prevent runaway (max ~400)
+        if (saturationAccum > 400) saturationAccum = 400;
+
+        // High drive with controlled progression for crunch without runaway
+        // Max drive = 2750 ensures stability even below soft knee
+        int32_t drive = 2700 + ((saturationAccum + 8) >> 4);
 
         // Scale input by drive
         int64_t driven = ((int64_t)input * drive + 1024) >> 11;
 
-        // Symmetric soft saturation for even-order harmonics
-        // Using a tanh-like curve approximation: y = x / (1 + x²/threshold²)
-        // This adds harmonics without harsh clipping
+        // Very aggressive soft saturation for rich harmonics and crunch
+        // Compresses hard above knee to control level while adding character
         int32_t output;
 
-        // Soft knee starts around 60% of max range for gentle saturation
-        const int32_t softKnee = 1200;  // Point where soft saturation begins
+        // Very low soft knee for early, aggressive saturation
+        const int32_t softKnee = 600;  // Very early saturation for maximum crunch
 
         if (driven >= 0) {
             if (driven < softKnee) {
                 output = driven;  // Clean pass-through for low levels
             } else {
-                // Gentle soft saturation curve
-                // Gradually compresses without harsh clipping
+                // Very aggressive soft saturation curve with extreme compression
                 int32_t excess = driven - softKnee;
-                // Soft knee: progressively reduce gain as level increases
-                output = softKnee + ((excess + 1) >> 1) + ((excess + 4) >> 3);  // ~62.5% of excess
+                // Compress excess very heavily: ~31.25% of excess passes through
+                output = softKnee + ((excess + 4) >> 3) + ((excess + 16) >> 5);  // ~31.25% of excess
                 if (output > 2047) output = 2047;
             }
         } else {
@@ -82,20 +97,25 @@ private:
                 output = driven;  // Clean pass-through
             } else {
                 int32_t excess = posInput - softKnee;
-                output = -(softKnee + ((excess + 1) >> 1) + ((excess + 4) >> 3));
+                output = -(softKnee + ((excess + 4) >> 3) + ((excess + 16) >> 5));
                 if (output < -2047) output = -2047;
             }
         }
+
+        // Post-saturation makeup gain to ensure net <1.0 gain for stability
+        // Multiply by 0.7 (1434/2048) to guarantee feedback decay even with higher drive
+        output = (int32_t)(((int64_t)output * 1434 + 1024) >> 11);
 
         return output;
     }
 
 public:
     AudioDelay() : writeIndex(0), smoothedDelay(0), lastRawControl(0), ledCounter(0),
-                   currentMode(CLEAN), lastSwitchDown(SwitchVal() == Down),
-                   hpfState(0), saturationAccum(0),
-                   lastTapTime(0), tapInterval(24000), tapTempoActive(false),
-                   lastPulse1(false), sampleCounter(0) {
+                   currentMode(CLEAN), lastSwitchDown(false),
+                   hpfState(0), shimmerHpfState(0), saturationAccum(0),
+                   lastTapTime(0), tapInterval(24000), tapTimeout(0), tapTempoActive(false),
+                   lastPulse1(false), sampleCounter(0),
+                   freezeSmoothL(0), freezeSmoothR(0) {
     }
 
 protected:
@@ -127,13 +147,16 @@ protected:
             if (timeSinceLastTap >= 2400 && timeSinceLastTap <= 144000) {
                 tapInterval = timeSinceLastTap;
                 tapTempoActive = true;
+                // Set timeout deadline (5 seconds from now, overflow-safe)
+                tapTimeout = sampleCounter + 240000;
             }
             lastTapTime = sampleCounter;
         }
         lastPulse1 = pulse1;
 
         // Timeout: If no tap for 5 seconds, return to knob control
-        if (tapTempoActive && (sampleCounter - lastTapTime) > 240000) {
+        // Use signed comparison for overflow-safe timeout check
+        if (tapTempoActive && (int32_t)(sampleCounter - tapTimeout) >= 0) {
             tapTempoActive = false;
         }
 
@@ -170,9 +193,9 @@ protected:
         }
 
         // Map combined value to delay time in samples
-        // Range: 100 samples (2ms) to 71000 samples (~1.5 seconds)
+        // Range: 100 samples (2ms) to 95000 samples (~2.0 seconds)
         const int32_t MIN_DELAY = 100;
-        const int32_t MAX_DELAY = 71000;
+        const int32_t MAX_DELAY = 95000;
 
         // Calculate delay time
         int32_t targetDelay;
@@ -194,7 +217,7 @@ protected:
         smoothedDelay = (int32_t)(((int64_t)smoothedDelay * 255 + targetDelayFine + 128) >> 8);
 
         // SHIMMER MODE: Fixed pitch shift of +7 semitones (perfect fifth)
-        // Then adds +12 semitones (one octave) per feedback iteration
+        // Stacks +7 semitones per feedback iteration for dense harmonic cascade
         int32_t pitchModulation = 0;
         if (currentMode == SHIMMER) {
             // INITIAL SHIFT: +7 semitones = perfect fifth up
@@ -202,18 +225,20 @@ protected:
             //   Delay = 1/1.4983 = 0.6674 = -33.26% change
             //   Fixed point: -21782
             //
-            // Effect: Each feedback repeat adds +12 semitones (one octave)
+            // Effect: Each feedback repeat adds +7 semitones (perfect fifth)
             //   Input: original pitch (0)
             //   1st echo: +7 semitones (perfect fifth)
-            //   2nd echo: +19 semitones (1 octave + perfect fifth)
-            //   3rd echo: +31 semitones (2 octaves + minor seventh)
-            //   4th echo: +43 semitones (3 octaves + major sixth)
-            //   etc.
+            //   2nd echo: +14 semitones (major ninth)
+            //   3rd echo: +21 semitones (octave + major sixth)
+            //   4th echo: +28 semitones (2 octaves + perfect fourth)
+            //   5th echo: +35 semitones (2 octaves + major ninth)
+            //   Creates dense, cascading harmonic staircase
 
             int32_t pitchMod = -21782;
 
-            // Apply fixed pitch shift
-            pitchModulation = (int32_t)(((int64_t)smoothedDelay * pitchMod + 32768) >> 16);
+            // Apply fixed pitch shift with proper rounding for negative values
+            int64_t temp = (int64_t)smoothedDelay * pitchMod;
+            pitchModulation = (int32_t)((temp + (temp >= 0 ? 32768 : -32768)) >> 16);
         }
 
         int32_t modulatedDelay = smoothedDelay + pitchModulation;
@@ -234,8 +259,8 @@ protected:
             // SATURATION mode: 1% stereo offset for subtle width
             modulatedDelayRight = (int32_t)(((int64_t)modulatedDelay * 101) / 100);
         } else {
-            // SHIMMER mode: 3% stereo offset for wider soundscape
-            modulatedDelayRight = (int32_t)(((int64_t)modulatedDelay * 103) / 100);
+            // SHIMMER mode: 10% stereo offset for expansive, dramatic soundscape
+            modulatedDelayRight = (int32_t)(((int64_t)modulatedDelay * 110) / 100);
         }
 
         // Clamp right channel delay to valid range
@@ -280,6 +305,22 @@ protected:
         int32_t sample2R = delayBuffer[readIndex2R];
         int32_t delayedSampleRight = (sample2R * fractionRight + sample1R * (128 - fractionRight) + 64) >> 7;
 
+        // FREEZE SMOOTHING: Apply lowpass filtering during freeze to eliminate loop discontinuities
+        // Check freeze status early to apply smoothing before feedback processing
+        bool freezeActive = PulseIn2();
+        if (freezeActive) {
+            // Gentle one-pole lowpass filter (coefficient 8000 ~= 0.122)
+            // Smooths loop boundaries while preserving audio quality
+            freezeSmoothL += (((delayedSampleLeft - freezeSmoothL) * 8000 + 32768) >> 16);
+            freezeSmoothR += (((delayedSampleRight - freezeSmoothR) * 8000 + 32768) >> 16);
+            delayedSampleLeft = freezeSmoothL;
+            delayedSampleRight = freezeSmoothR;
+        } else {
+            // When not frozen, reset smoothing state to current samples for instant response
+            freezeSmoothL = delayedSampleLeft;
+            freezeSmoothR = delayedSampleRight;
+        }
+
         // Use left channel for feedback (mono feedback to avoid phase issues)
         int32_t delayedSample = delayedSampleLeft;
 
@@ -312,8 +353,31 @@ protected:
 
         // APPLY MODE EFFECTS to feedback signal
         if (currentMode == SATURATION) {
-            // SATURATION Mode: Progressive warm saturation
+            // SATURATION Mode: Progressive warm saturation with dynamics envelope
             feedbackSignal = warmSaturate(feedbackSignal);
+
+            // Dynamic gain envelope: Builds up then decays for "bloom" effect
+            // Creates excitement in early repeats, then natural decay
+            // saturationAccum range: 0 to 400 (capped)
+            int32_t dynamicGain;
+            if (saturationAccum < 150) {
+                // Rising phase: 0.85x → 1.15x (bloom/swell)
+                // Gain increases with each repeat, creating buildup
+                dynamicGain = 1740 + (saturationAccum << 2);  // 1740 to 2340 (~0.85x to 1.14x)
+            } else {
+                // Decay phase: 1.15x → 0.55x (compression/decay)
+                // Heavy compression for long tail
+                int32_t decay = saturationAccum - 150;  // 0 to 250
+                dynamicGain = 2340 - ((decay * 5 + 1) >> 1);  // 2340 down to ~1715
+                if (dynamicGain < 1126) dynamicGain = 1126;  // Floor at 0.55x
+            }
+
+            // Apply dynamic gain envelope (2048 = 1.0x)
+            feedbackSignal = (int32_t)(((int64_t)feedbackSignal * dynamicGain + 1024) >> 11);
+        } else if (currentMode == SHIMMER) {
+            // SHIMMER Mode: Aggressive highpass filtering to emphasize upper harmonics
+            // Makes the perfect fifth stacking more obvious and prevents muddy buildup
+            feedbackSignal = shimmerHighpass(feedbackSignal);
         }
         // CLEAN and LOFI modes: no processing, pass through as-is
 
@@ -329,10 +393,8 @@ protected:
         if (filteredSignal > 2047) filteredSignal = 2047;
         if (filteredSignal < -2047) filteredSignal = -2047;
 
-        // FREEZE/HOLD: Pulse In 2 freezes the delay buffer
-        // When high: Stop writing new audio, existing delays continue to feedback
-        // When low: Normal recording resumes
-        bool freezeActive = PulseIn2();
+        // FREEZE/HOLD: Write to buffer only when not frozen
+        // (freezeActive already read earlier for smoothing)
         if (!freezeActive) {
             delayBuffer[writeIndex] = (int16_t)filteredSignal;
         }

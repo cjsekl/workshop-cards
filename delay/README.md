@@ -4,7 +4,7 @@ An audio delay effect for the Music Thing Modular Workshop System Computer Card.
 
 ## Features
 
-- Audio delay with variable delay time (2ms to 1.5 seconds)
+- Audio delay with variable delay time (2ms to 2.0 seconds)
 - Feedback control with infinite sustain capability
 - Dry/wet mix
 - CV modulation inputs for delay time and feedback
@@ -81,11 +81,12 @@ Press the switch down to cycle through four delay modes:
 - ~50% more drive than original implementation
 
 ### SHIMMER Mode (LED 4)
-- Pitch-shifted reverb effect
+- Pitch-shifted reverb effect with dense harmonic stacking
 - +7 semitones (perfect fifth) on first delay
-- +12 semitones (octave) added per feedback iteration
-- 3% stereo width for expansive soundscape
-- Creates cascading harmony effect
+- +7 semitones added per feedback iteration (stacking fifths)
+- 10% stereo width for dramatic, expansive soundscape
+- Aggressive highpass filtering emphasizes upper harmonics
+- Creates bright, cascading harmonic staircase effect
 
 ### LOFI Mode (LED 5)
 - Clean delay with pitch warble character
@@ -124,8 +125,8 @@ The main code is in `main.cpp`. The `AudioDelay` class inherits from `ComputerCa
 
 ### Key Implementation Details
 
-- **Buffer size**: 72,000 samples (1.5 seconds at 48kHz, 144 KB memory)
-- **Delay range**: 100 to 71,000 samples (2ms to 1.5 seconds)
+- **Buffer size**: 96,000 samples (2.0 seconds at 48kHz, 192 KB memory)
+- **Delay range**: 100 to 95,000 samples (2ms to 2.0 seconds)
 - **Interpolation**: Linear interpolation with 128x fractional precision
 - **Smoothing**: Exponential smoothing (α=255/256) prevents zipper noise
 - **Hysteresis**: 8-point threshold on delay control prevents ADC jitter (except LOFI mode)
