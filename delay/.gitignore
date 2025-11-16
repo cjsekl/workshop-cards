@@ -1,0 +1,22 @@
+# Build directory
+build/
+# Exception: track the final .uf2 file
+!build/delay.uf2
+
+# Pico SDK
+pico-sdk/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Compiled files
+*.o
+*.elf
+*.bin
+*.hex
+*.map
+*.dis
