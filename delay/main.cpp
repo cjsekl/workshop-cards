@@ -32,9 +32,11 @@ private:
     bool lastPulse1;           // Previous pulse state for edge detection
     uint32_t sampleCounter;    // Global sample counter for timing
 
-    // Freeze smoothing state
-    int32_t freezeSmoothL;     // Smoothing state for left channel during freeze
-    int32_t freezeSmoothR;     // Smoothing state for right channel during freeze
+    // Freeze state
+    bool lastFreezeActive;     // Previous freeze state for edge detection
+    int32_t frozenWritePos;    // Write position when freeze was activated
+    int32_t frozenDelayTimeL;  // Left channel delay time when freeze was activated
+    int32_t frozenDelayTimeR;  // Right channel delay time when freeze was activated
 
     int32_t highpass(int32_t input) {
         // One-pole highpass filter with coefficient b = 200
@@ -111,11 +113,11 @@ private:
 
 public:
     AudioDelay() : writeIndex(0), smoothedDelay(0), lastRawControl(0), ledCounter(0),
-                   currentMode(CLEAN), lastSwitchDown(false),
+                   currentMode(CLEAN), lastSwitchDown(true),
                    hpfState(0), shimmerHpfState(0), saturationAccum(0),
                    lastTapTime(0), tapInterval(24000), tapTimeout(0), tapTempoActive(false),
                    lastPulse1(false), sampleCounter(0),
-                   freezeSmoothL(0), freezeSmoothR(0) {
+                   lastFreezeActive(false), frozenWritePos(0), frozenDelayTimeL(0), frozenDelayTimeR(0) {
     }
 
 protected:
@@ -267,13 +269,48 @@ protected:
         if (modulatedDelayRight < minDelayFine) modulatedDelayRight = minDelayFine;
         if (modulatedDelayRight > maxDelayFine) modulatedDelayRight = maxDelayFine;
 
-        // LEFT CHANNEL: Extract integer and fractional parts
-        int32_t delayInSamplesLeft = modulatedDelay >> 7;  // Integer part
-        int32_t fractionLeft = modulatedDelay & 0x7F;      // Fractional part (0-127)
+        // FREEZE DETECTION: Capture state when freeze is activated
+        bool freezeActive = PulseIn2();
+        if (freezeActive && !lastFreezeActive) {
+            // Rising edge - freeze just activated
+            // Capture current write position and delay times for seamless looping
+            frozenWritePos = writeIndex;
+            frozenDelayTimeL = modulatedDelay >> 7;  // Left delay in samples
+            frozenDelayTimeR = modulatedDelayRight >> 7;  // Right delay in samples
+        }
+        lastFreezeActive = freezeActive;
+
+        // DELAY READ: Use frozen parameters during freeze for seamless looping
+        int32_t delayInSamplesLeft, delayInSamplesRight;
+        int32_t effectiveWriteIndex;
+
+        if (freezeActive) {
+            // During freeze: Read from frozen loop
+            // Calculate how far we've advanced since freeze started
+            int32_t advancedSamples = writeIndex - frozenWritePos;
+            if (advancedSamples < 0) advancedSamples += MAX_DELAY_SIZE;
+
+            // Use frozen delay times and create seamless loop
+            delayInSamplesLeft = frozenDelayTimeL;
+            delayInSamplesRight = frozenDelayTimeR;
+
+            // Read position loops within the frozen delay time
+            // This ensures we always read the same loop segment
+            effectiveWriteIndex = frozenWritePos + (advancedSamples % (frozenDelayTimeL + 1));
+            if (effectiveWriteIndex >= MAX_DELAY_SIZE) effectiveWriteIndex -= MAX_DELAY_SIZE;
+        } else {
+            // Normal operation: Use current delay times and write position
+            delayInSamplesLeft = modulatedDelay >> 7;
+            delayInSamplesRight = modulatedDelayRight >> 7;
+            effectiveWriteIndex = writeIndex;
+        }
+
+        // LEFT CHANNEL: Extract fractional parts
+        int32_t fractionLeft = modulatedDelay & 0x7F;
 
         // Read indices for linear interpolation (LEFT)
-        int32_t readIndex1L = writeIndex - delayInSamplesLeft - 1;
-        int32_t readIndex2L = writeIndex - delayInSamplesLeft - 2;
+        int32_t readIndex1L = effectiveWriteIndex - delayInSamplesLeft - 1;
+        int32_t readIndex2L = effectiveWriteIndex - delayInSamplesLeft - 2;
 
         // Handle wraparound for left indices
         if (readIndex1L < 0) readIndex1L += MAX_DELAY_SIZE;
@@ -286,13 +323,12 @@ protected:
         int32_t sample2L = delayBuffer[readIndex2L];
         int32_t delayedSampleLeft = (sample2L * fractionLeft + sample1L * (128 - fractionLeft) + 64) >> 7;
 
-        // RIGHT CHANNEL: Extract integer and fractional parts
-        int32_t delayInSamplesRight = modulatedDelayRight >> 7;  // Integer part
-        int32_t fractionRight = modulatedDelayRight & 0x7F;      // Fractional part (0-127)
+        // RIGHT CHANNEL: Extract fractional parts
+        int32_t fractionRight = modulatedDelayRight & 0x7F;
 
         // Calculate read indices for linear interpolation (RIGHT)
-        int32_t readIndex1R = writeIndex - delayInSamplesRight - 1;
-        int32_t readIndex2R = writeIndex - delayInSamplesRight - 2;
+        int32_t readIndex1R = effectiveWriteIndex - delayInSamplesRight - 1;
+        int32_t readIndex2R = effectiveWriteIndex - delayInSamplesRight - 2;
 
         // Handle wraparound for right indices
         if (readIndex1R < 0) readIndex1R += MAX_DELAY_SIZE;
@@ -304,22 +340,6 @@ protected:
         int32_t sample1R = delayBuffer[readIndex1R];
         int32_t sample2R = delayBuffer[readIndex2R];
         int32_t delayedSampleRight = (sample2R * fractionRight + sample1R * (128 - fractionRight) + 64) >> 7;
-
-        // FREEZE SMOOTHING: Apply lowpass filtering during freeze to eliminate loop discontinuities
-        // Check freeze status early to apply smoothing before feedback processing
-        bool freezeActive = PulseIn2();
-        if (freezeActive) {
-            // Gentle one-pole lowpass filter (coefficient 8000 ~= 0.122)
-            // Smooths loop boundaries while preserving audio quality
-            freezeSmoothL += (((delayedSampleLeft - freezeSmoothL) * 8000 + 32768) >> 16);
-            freezeSmoothR += (((delayedSampleRight - freezeSmoothR) * 8000 + 32768) >> 16);
-            delayedSampleLeft = freezeSmoothL;
-            delayedSampleRight = freezeSmoothR;
-        } else {
-            // When not frozen, reset smoothing state to current samples for instant response
-            freezeSmoothL = delayedSampleLeft;
-            freezeSmoothR = delayedSampleRight;
-        }
 
         // Use left channel for feedback (mono feedback to avoid phase issues)
         int32_t delayedSample = delayedSampleLeft;
