@@ -54,14 +54,11 @@ Send rhythmic triggers to set delay time musically:
 - Accepts tap intervals from 50ms to 3 seconds
 - Overrides X knob and CV1 when active
 - Returns to manual control after 5 seconds of no taps
-- Perfect for syncing delays to your music's tempo
 
 ### Freeze/Hold (Pulse In 2)
 Freeze the delay buffer while audio continues to repeat:
 - Gate high: Stops recording new audio, existing delays continue to feedback
 - Gate low: Normal recording resumes
-- Creates infinite sustain pad textures
-- Great for ambient and experimental music
 - Current repeats evolve through feedback and mode effects
 
 ## Delay Modes
@@ -75,23 +72,21 @@ Press the switch down to cycle through four delay modes:
 - Default mode on startup
 
 ### SATURATION Mode (LED 3)
-- Warm tape-style saturation effect
+- Delay with saturation effect
 - Progressive soft clipping increases with each feedback iteration
 - 1% stereo width for subtle spatial effect
-- ~50% more drive than original implementation
 
 ### SHIMMER Mode (LED 4)
-- Pitch-shifted reverb effect with dense harmonic stacking
+- Pitch-shifted delay effect with harmonic stacking
+- Speeds up repeats to pitch them up
 - +7 semitones (perfect fifth) on first delay
 - +7 semitones added per feedback iteration (stacking fifths)
 - 10% stereo width for dramatic, expansive soundscape
 - Aggressive highpass filtering emphasizes upper harmonics
-- Creates bright, cascading harmonic staircase effect
 
 ### LOFI Mode (LED 5)
-- Clean delay with pitch warble character
+- Lofi delay
 - No hysteresis on delay time control - allows ADC noise and micro-movements to modulate pitch
-- Creates tape-style wow/flutter and pitch wobble effects
 - Mono output (no stereo spread)
 
 ## Building
@@ -123,13 +118,9 @@ Press the switch down to cycle through four delay modes:
 
 The main code is in `main.cpp`. The `AudioDelay` class inherits from `ComputerCard` and implements the `ProcessSample()` method, which is called at 48kHz audio rate.
 
-### Key Implementation Details
-
-- **Buffer size**: 96,000 samples (2.0 seconds at 48kHz, 192 KB memory)
-- **Delay range**: 100 to 95,000 samples (2ms to 2.0 seconds)
-- **Interpolation**: Linear interpolation with 128x fractional precision
-- **Smoothing**: Exponential smoothing (α=255/256) prevents zipper noise
-- **Hysteresis**: 8-point threshold on delay control prevents ADC jitter (except LOFI mode)
-- **DC filtering**: One-pole highpass filter prevents DC offset buildup in feedback path
-- **Feedback**: Quadratic crossfade with 5% minimum input gain for infinite sustain
-
+## TODO
+- Figure out why first mode selection loop skips mode 2
+- Enhance saturation effect in SATURATED mode
+- Enhance shimmer effect in SHIMMER mode
+- Control mono/stereo with switch up?
+- Do something with CV and Pulse out
