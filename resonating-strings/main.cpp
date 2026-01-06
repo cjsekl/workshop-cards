@@ -85,29 +85,33 @@ private:
     }
 
     // Calculate frequency ratio based on tuning mode and string number
-    void getFrequencyRatios(float& ratio1, float& ratio2, float& ratio3) {
-        ratio1 = 1.0f;  // Fundamental
+    // Using fixed-point math to avoid floating-point on Cortex-M0+
+    // Returns numerator and denominator for each ratio
+    void getFrequencyRatios(int& num1, int& den1, int& num2, int& den2, int& num3, int& den3) {
+        // String 1: Fundamental
+        num1 = 1;
+        den1 = 1;
 
         switch (currentMode) {
             case HARMONIC:
                 // Harmonic series: 1:1, 2:1, 3:1
-                ratio2 = 2.0f;
-                ratio3 = 3.0f;
+                num2 = 2; den2 = 1;
+                num3 = 3; den3 = 1;
                 break;
             case FIFTH:
                 // Musical fifth: 1:1, 3:2, 2:1
-                ratio2 = 1.5f;
-                ratio3 = 2.0f;
+                num2 = 3; den2 = 2;
+                num3 = 2; den3 = 1;
                 break;
             case MAJOR:
                 // Major triad: 1:1, 5:4, 3:2
-                ratio2 = 1.25f;
-                ratio3 = 1.5f;
+                num2 = 5; den2 = 4;
+                num3 = 3; den3 = 2;
                 break;
             case MINOR:
                 // Minor triad: 1:1, 6:5, 3:2
-                ratio2 = 1.2f;
-                ratio3 = 1.5f;
+                num2 = 6; den2 = 5;
+                num3 = 3; den3 = 2;
                 break;
         }
     }
@@ -156,13 +160,15 @@ protected:
         int32_t baseDelay = MAX_DELAY - ((combinedFreq * (MAX_DELAY - MIN_DELAY)) / 4095);
 
         // Get frequency ratios based on current tuning mode
-        float ratio1, ratio2, ratio3;
-        getFrequencyRatios(ratio1, ratio2, ratio3);
+        // Using integer numerator/denominator to avoid floating-point
+        int num1, den1, num2, den2, num3, den3;
+        getFrequencyRatios(num1, den1, num2, den2, num3, den3);
 
-        // Calculate delay lengths for each string
-        delayLength1 = (int)(baseDelay / ratio1);
-        delayLength2 = (int)(baseDelay / ratio2);
-        delayLength3 = (int)(baseDelay / ratio3);
+        // Calculate delay lengths for each string using integer math
+        // delay = baseDelay * denominator / numerator
+        delayLength1 = (baseDelay * den1) / num1;
+        delayLength2 = (baseDelay * den2) / num2;
+        delayLength3 = (baseDelay * den3) / num3;
 
         // Clamp to valid range
         if (delayLength1 < 10) delayLength1 = 10;
