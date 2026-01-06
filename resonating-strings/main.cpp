@@ -1,0 +1,243 @@
+#include "ComputerCard.h"
+
+// Sympathetic Resonator inspired by Mutable Instruments Rings
+// Three resonating strings using Karplus-Strong synthesis
+class ResonatingStrings : public ComputerCard
+{
+private:
+    // Maximum delay line size (lowest frequency ~50Hz at 48kHz)
+    static const int MAX_DELAY_SIZE = 960;
+
+    // Three string delay lines
+    int16_t delayLine1[MAX_DELAY_SIZE];
+    int16_t delayLine2[MAX_DELAY_SIZE];
+    int16_t delayLine3[MAX_DELAY_SIZE];
+
+    int writeIndex1;
+    int writeIndex2;
+    int writeIndex3;
+
+    int delayLength1;
+    int delayLength2;
+    int delayLength3;
+
+    // Filter states for damping (one-pole lowpass per string)
+    int32_t filterState1;
+    int32_t filterState2;
+    int32_t filterState3;
+
+    // Tuning mode
+    enum TuningMode {
+        HARMONIC = 0,    // 1:1, 2:1, 3:1 (fundamental, octave, octave+fifth)
+        FIFTH = 1,       // 1:1, 3:2, 2:1 (fundamental, fifth, octave)
+        MAJOR = 2,       // 1:1, 5:4, 3:2 (major triad)
+        MINOR = 3        // 1:1, 6:5, 3:2 (minor triad)
+    };
+    TuningMode currentMode;
+    bool lastSwitchDown;
+
+    // Excitation detector (for sympathetic response)
+    int32_t envelopeFollower;
+
+    // Initialize delay lines with noise burst
+    void initializeString(int16_t* delayLine, int length) {
+        for (int i = 0; i < length && i < MAX_DELAY_SIZE; i++) {
+            // Simple pseudo-random noise
+            int16_t noise = (int16_t)((i * 1103515245 + 12345) & 0x7FFF) - 16384;
+            delayLine[i] = noise >> 3;  // Reduce amplitude
+        }
+    }
+
+    // One-pole lowpass filter for damping
+    int32_t dampingFilter(int32_t input, int32_t& state, int32_t coefficient) {
+        // state += ((input - state) * coefficient) >> 16
+        state += (((input - state) * coefficient + 32768) >> 16);
+        return state;
+    }
+
+    // Process one string
+    int32_t processString(int16_t* delayLine, int& writeIndex, int delayLength,
+                         int32_t& filterState, int32_t excitation,
+                         int32_t dampingCoeff, int32_t brightness) {
+        // Read from delay line
+        int readIndex = writeIndex - delayLength;
+        if (readIndex < 0) readIndex += MAX_DELAY_SIZE;
+
+        int32_t delayedSample = delayLine[readIndex];
+
+        // Apply damping filter
+        int32_t dampedSample = dampingFilter(delayedSample, filterState, dampingCoeff);
+
+        // Add excitation (input signal)
+        int32_t newSample = dampedSample + excitation;
+
+        // Soft clipping to prevent overflow
+        if (newSample > 2047) newSample = 2047;
+        if (newSample < -2047) newSample = -2047;
+
+        // Write back to delay line
+        delayLine[writeIndex] = (int16_t)newSample;
+
+        // Advance write index
+        writeIndex = (writeIndex + 1) % MAX_DELAY_SIZE;
+
+        return delayedSample;
+    }
+
+    // Calculate frequency ratio based on tuning mode and string number
+    void getFrequencyRatios(float& ratio1, float& ratio2, float& ratio3) {
+        ratio1 = 1.0f;  // Fundamental
+
+        switch (currentMode) {
+            case HARMONIC:
+                // Harmonic series: 1:1, 2:1, 3:1
+                ratio2 = 2.0f;
+                ratio3 = 3.0f;
+                break;
+            case FIFTH:
+                // Musical fifth: 1:1, 3:2, 2:1
+                ratio2 = 1.5f;
+                ratio3 = 2.0f;
+                break;
+            case MAJOR:
+                // Major triad: 1:1, 5:4, 3:2
+                ratio2 = 1.25f;
+                ratio3 = 1.5f;
+                break;
+            case MINOR:
+                // Minor triad: 1:1, 6:5, 3:2
+                ratio2 = 1.2f;
+                ratio3 = 1.5f;
+                break;
+        }
+    }
+
+public:
+    ResonatingStrings() : writeIndex1(0), writeIndex2(0), writeIndex3(0),
+                          delayLength1(100), delayLength2(150), delayLength3(200),
+                          filterState1(0), filterState2(0), filterState3(0),
+                          currentMode(FIFTH), lastSwitchDown(true),
+                          envelopeFollower(0) {
+        // Initialize delay lines with silence
+        for (int i = 0; i < MAX_DELAY_SIZE; i++) {
+            delayLine1[i] = 0;
+            delayLine2[i] = 0;
+            delayLine3[i] = 0;
+        }
+    }
+
+protected:
+    void ProcessSample() override {
+        // Read inputs
+        int16_t audioIn1 = AudioIn1();
+        int16_t audioIn2 = AudioIn2();
+        int32_t audioIn = ((int32_t)audioIn1 + (int32_t)audioIn2 + 1) >> 1;
+
+        // Mode switching
+        Switch switchPos = SwitchVal();
+        bool switchDown = (switchPos == Down);
+        if (switchDown && !lastSwitchDown) {
+            currentMode = (TuningMode)((currentMode + 1) % 4);
+        }
+        lastSwitchDown = switchDown;
+
+        // FREQUENCY CONTROL (X Knob + CV1)
+        int32_t frequencyKnob = KnobVal(X);  // 0-4095
+        int16_t cv1 = CVIn1();
+
+        int32_t combinedFreq = frequencyKnob + cv1;
+        if (combinedFreq > 4095) combinedFreq = 4095;
+        if (combinedFreq < 0) combinedFreq = 0;
+
+        // Map to delay length (50Hz to 800Hz range)
+        // At 48kHz: 50Hz = 960 samples, 800Hz = 60 samples
+        const int MIN_DELAY = 60;
+        const int MAX_DELAY = 960;
+        int32_t baseDelay = MAX_DELAY - ((combinedFreq * (MAX_DELAY - MIN_DELAY)) / 4095);
+
+        // Get frequency ratios based on current tuning mode
+        float ratio1, ratio2, ratio3;
+        getFrequencyRatios(ratio1, ratio2, ratio3);
+
+        // Calculate delay lengths for each string
+        delayLength1 = (int)(baseDelay / ratio1);
+        delayLength2 = (int)(baseDelay / ratio2);
+        delayLength3 = (int)(baseDelay / ratio3);
+
+        // Clamp to valid range
+        if (delayLength1 < 10) delayLength1 = 10;
+        if (delayLength2 < 10) delayLength2 = 10;
+        if (delayLength3 < 10) delayLength3 = 10;
+        if (delayLength1 > MAX_DELAY_SIZE - 1) delayLength1 = MAX_DELAY_SIZE - 1;
+        if (delayLength2 > MAX_DELAY_SIZE - 1) delayLength2 = MAX_DELAY_SIZE - 1;
+        if (delayLength3 > MAX_DELAY_SIZE - 1) delayLength3 = MAX_DELAY_SIZE - 1;
+
+        // DAMPING CONTROL (Y Knob)
+        int32_t dampingKnob = KnobVal(Y);  // 0-4095
+
+        // Map to filter coefficient (more damping = lower coefficient = darker sound)
+        // Range from 64000 (very resonant) to 16000 (heavily damped)
+        int32_t dampingCoeff = 16000 + ((dampingKnob * 48000) / 4095);
+
+        // BRIGHTNESS CONTROL (CV2)
+        // This will be used later for a brightness filter (not implemented in this simple version)
+
+        // Envelope follower - detect input energy
+        int32_t absInput = (audioIn < 0) ? -audioIn : audioIn;
+        envelopeFollower = ((envelopeFollower * 255) >> 8) + (absInput >> 3);
+
+        // Excitation amounts for each string based on envelope
+        // String 1 gets full input, others get scaled versions (sympathetic response)
+        int32_t excitation1 = audioIn >> 2;  // Direct excitation
+        int32_t excitation2 = audioIn >> 4;  // Sympathetic response
+        int32_t excitation3 = audioIn >> 4;  // Sympathetic response
+
+        // Process each string
+        int32_t out1 = processString(delayLine1, writeIndex1, delayLength1,
+                                     filterState1, excitation1, dampingCoeff, 0);
+        int32_t out2 = processString(delayLine2, writeIndex2, delayLength2,
+                                     filterState2, excitation2, dampingCoeff, 0);
+        int32_t out3 = processString(delayLine3, writeIndex3, delayLength3,
+                                     filterState3, excitation3, dampingCoeff, 0);
+
+        // Mix strings together
+        int32_t resonatorOut = (out1 + out2 + out3) / 3;
+
+        // WET/DRY MIX (Main Knob)
+        int32_t mixKnob = KnobVal(Main);  // 0-4095
+
+        int32_t dryGain = 4095 - mixKnob;
+        int32_t wetGain = mixKnob;
+
+        int32_t mixedOutput = ((audioIn * dryGain) + (resonatorOut * wetGain) + 2048) >> 12;
+
+        // Clipping
+        if (mixedOutput > 2047) mixedOutput = 2047;
+        if (mixedOutput < -2047) mixedOutput = -2047;
+
+        int16_t output = (int16_t)mixedOutput;
+
+        // Output to both channels
+        AudioOut1(output);
+        AudioOut2(output);
+
+        // LED indicators
+        // LED 0-3: Current tuning mode
+        LedOn(0, currentMode == HARMONIC);
+        LedOn(1, currentMode == FIFTH);
+        LedOn(2, currentMode == MAJOR);
+        LedOn(3, currentMode == MINOR);
+
+        // LED 4: Input level indicator
+        LedOn(4, envelopeFollower > 100);
+
+        // LED 5: Resonance indicator (on when damping is low)
+        LedOn(5, dampingKnob > 3000);
+    }
+};
+
+int main() {
+    static ResonatingStrings resonator;
+    resonator.Run();
+    return 0;
+}
