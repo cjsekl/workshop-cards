@@ -39,6 +39,9 @@ private:
     // Excitation detector (for sympathetic response)
     int32_t envelopeFollower;
 
+    // DC blocker states for each string
+    int32_t dcState1, dcState2, dcState3;
+
     // Initialize delay lines with noise burst
     void initializeString(int16_t* delayLine, int length) {
         for (int i = 0; i < length && i < MAX_DELAY_SIZE; i++) {
@@ -57,7 +60,7 @@ private:
 
     // Process one string
     int32_t processString(int16_t* delayLine, int& writeIndex, int delayLength,
-                         int32_t& filterState, int32_t excitation,
+                         int32_t& filterState, int32_t& dcState, int32_t excitation,
                          int32_t dampingCoeff, int32_t brightness) {
         // Read from delay line
         int readIndex = writeIndex - delayLength;
@@ -67,6 +70,11 @@ private:
 
         // Apply damping filter
         int32_t dampedSample = dampingFilter(delayedSample, filterState, dampingCoeff);
+
+        // DC blocker: remove DC offset to prevent accumulation
+        // This keeps the resonance "fresh" like at startup
+        dcState += (dampedSample - dcState) >> 8;  // Slow DC tracking
+        dampedSample -= dcState;  // Subtract DC component
 
         // Add excitation (input signal)
         int32_t newSample = dampedSample + excitation;
@@ -121,7 +129,8 @@ public:
                           delayLength1(100), delayLength2(150), delayLength3(200),
                           filterState1(0), filterState2(0), filterState3(0),
                           currentMode(FIFTH), lastSwitchDown(true),
-                          envelopeFollower(0) {
+                          envelopeFollower(0),
+                          dcState1(0), dcState2(0), dcState3(0) {
         // Initialize delay lines with silence
         for (int i = 0; i < MAX_DELAY_SIZE; i++) {
             delayLine1[i] = 0;
@@ -161,7 +170,7 @@ protected:
 
         // Get frequency ratios based on current tuning mode
         // Using integer numerator/denominator to avoid floating-point
-        int num1, den1, num2, den2, num3, den3;
+        int num1 = 1, den1 = 1, num2 = 2, den2 = 1, num3 = 3, den3 = 1;
         getFrequencyRatios(num1, den1, num2, den2, num3, den3);
 
         // Calculate delay lengths for each string using integer math
@@ -182,8 +191,8 @@ protected:
         int32_t dampingKnob = KnobVal(Y);  // 0-4095
 
         // Map to filter coefficient (more damping = lower coefficient = darker sound)
-        // Range from 64000 (very resonant) to 16000 (heavily damped)
-        int32_t dampingCoeff = 16000 + ((dampingKnob * 48000) / 4095);
+        // Range from 65300 (extremely long decay) to 32000 (moderate decay)
+        int32_t dampingCoeff = 32000 + ((dampingKnob * 33300) / 4095);
 
         // BRIGHTNESS CONTROL (CV2)
         // This will be used later for a brightness filter (not implemented in this simple version)
@@ -200,11 +209,11 @@ protected:
 
         // Process each string
         int32_t out1 = processString(delayLine1, writeIndex1, delayLength1,
-                                     filterState1, excitation1, dampingCoeff, 0);
+                                     filterState1, dcState1, excitation1, dampingCoeff, 0);
         int32_t out2 = processString(delayLine2, writeIndex2, delayLength2,
-                                     filterState2, excitation2, dampingCoeff, 0);
+                                     filterState2, dcState2, excitation2, dampingCoeff, 0);
         int32_t out3 = processString(delayLine3, writeIndex3, delayLength3,
-                                     filterState3, excitation3, dampingCoeff, 0);
+                                     filterState3, dcState3, excitation3, dampingCoeff, 0);
 
         // Mix strings together
         int32_t resonatorOut = (out1 + out2 + out3) / 3;
