@@ -66,7 +66,6 @@ private:
 
     // One-pole lowpass filter for damping
     int32_t dampingFilter(int32_t input, int32_t& state, int32_t coefficient) {
-        // state += ((input - state) * coefficient) >> 16
         state += (((input - state) * coefficient + 32768) >> 16);
         return state;
     }
@@ -85,7 +84,6 @@ private:
         int32_t dampedSample = dampingFilter(delayedSample, filterState, dampingCoeff);
 
         // DC blocker: remove DC offset to prevent accumulation
-        // This keeps the resonance "fresh" like at startup
         dcState += (dampedSample - dcState) >> 8;  // Slow DC tracking
         dampedSample -= dcState;  // Subtract DC component
 
@@ -246,7 +244,6 @@ protected:
         if (dampingKnob < 0) dampingKnob = 0;
 
         // Map to filter coefficient (more damping = lower coefficient = darker sound)
-        // Range from 65300 (extremely long decay) to 32000 (moderate decay)
         int32_t dampingCoeff = 32000 + ((dampingKnob * 33300) / 4095);
 
         // Envelope follower - detect input energy

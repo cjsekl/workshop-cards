@@ -26,7 +26,7 @@ The sympathetic resonator simulates the behavior of strings that vibrate in resp
 - **CV2**: Damping modulation (adds to Y knob)
 
 ### Switch
-Cycles through seven chord modes (press switch down to advance):
+Cycles through nine chord modes (press switch down to advance):
 - **HARMONIC**: Harmonic series - 1:1, 2:1, 3:1, 4:1
 - **FIFTH**: Stacked fifths - 1:1, 3:2, 2:1, 3:1
 - **MAJOR7**: Major 7th chord - 1:1, 5:4, 3:2, 15:8
@@ -34,6 +34,8 @@ Cycles through seven chord modes (press switch down to advance):
 - **DIM**: Diminished - 1:1, 6:5, 36:25, 3:2
 - **SUS4**: Suspended 4th - 1:1, 4:3, 3:2, 2:1
 - **ADD9**: Major add 9 - 1:1, 5:4, 3:2, 9:4
+- **TANPURA_PA**: Tanpura Pa drone - 1:1, 3:2, 2:1, 4:1 (Sa, Pa, Sa', Sa'')
+- **TANPURA_MA**: Tanpura Ma drone - 1:1, 4:3, 2:1, 4:1 (Sa, Ma, Sa', Sa'')
 
 ### Pulse Inputs
 - **Pulse In 1**: Trigger string excitation (pluck with noise burst)
@@ -43,10 +45,10 @@ Cycles through seven chord modes (press switch down to advance):
 
 All 6 LEDs indicate the current chord mode:
 - **LED 0**: HARMONIC mode (also lit for ADD9)
-- **LED 1**: FIFTH mode
-- **LED 2**: MAJOR7 mode
-- **LED 3**: MINOR7 mode
-- **LED 4**: DIM mode
+- **LED 1**: FIFTH mode (also lit for TANPURA_PA)
+- **LED 2**: MAJOR7 mode (also lit for TANPURA_MA)
+- **LED 3**: MINOR7 mode (also lit for TANPURA_MA)
+- **LED 4**: DIM mode (also lit for TANPURA_PA)
 - **LED 5**: SUS4 mode (also lit for ADD9)
 
 ## Future Enhancements
