@@ -1,10 +1,10 @@
 # Resonating Strings
 
-A sympathetic resonator workshop card inspired by the Mutable Instruments Rings module. This implements three resonating strings using Karplus-Strong synthesis, creating rich, harmonic textures.
+A sympathetic resonator workshop card inspired by the Mutable Instruments Rings module. This implements four resonating strings using Karplus-Strong synthesis, creating rich, harmonic textures.
 
 ## Description
 
-The sympathetic resonator simulates the behavior of strings that vibrate in response to external excitation. When you feed an audio signal into the module, it excites three virtual strings tuned to different harmonic relationships. This creates a shimmering, resonant effect similar to the sound of sympathetic strings on instruments like the sitar or tanpura.
+The sympathetic resonator simulates the behavior of strings that vibrate in response to external excitation. When you feed an audio signal into the module, it excites four virtual strings tuned to different harmonic relationships. This creates a shimmering, resonant effect similar to the sound of sympathetic strings on instruments like the sitar or tanpura.
 
 ## How It Works
 
@@ -23,53 +23,36 @@ The module uses Karplus-Strong synthesis, a simple but effective physical modeli
 
 ### CV Inputs
 - **CV1**: Frequency modulation (adds to X knob)
-- **CV2**: Reserved for future brightness control
+- **CV2**: Damping modulation (adds to Y knob)
 
 ### Switch
-Cycles through four tuning modes:
-- **Mode 1 (HARMONIC)**: Harmonic series - 1:1, 2:1, 3:1 (fundamental, octave, octave+fifth)
-- **Mode 2 (FIFTH)**: Musical intervals - 1:1, 3:2, 2:1 (fundamental, perfect fifth, octave)
-- **Mode 3 (MAJOR)**: Major triad - 1:1, 5:4, 3:2 (root, major third, perfect fifth)
-- **Mode 4 (MINOR)**: Minor triad - 1:1, 6:5, 3:2 (root, minor third, perfect fifth)
+Cycles through seven chord modes (press switch down to advance):
+- **HARMONIC**: Harmonic series - 1:1, 2:1, 3:1, 4:1
+- **FIFTH**: Stacked fifths - 1:1, 3:2, 2:1, 3:1
+- **MAJOR7**: Major 7th chord - 1:1, 5:4, 3:2, 15:8
+- **MINOR7**: Minor 7th chord - 1:1, 6:5, 3:2, 9:5
+- **DIM**: Diminished - 1:1, 6:5, 36:25, 3:2
+- **SUS4**: Suspended 4th - 1:1, 4:3, 3:2, 2:1
+- **ADD9**: Major add 9 - 1:1, 5:4, 3:2, 9:4
 
 ### Pulse Inputs
-- **Pulse In 1**: Reserved for future use (trigger string excitation)
-- **Pulse In 2**: Reserved for future use (freeze/hold)
+- **Pulse In 1**: Trigger string excitation (pluck with noise burst)
+- **Pulse In 2**: Reserved for future use
 
 ## LED Indicators
 
-- **LED 0**: HARMONIC mode active
-- **LED 1**: FIFTH mode active
-- **LED 2**: MAJOR mode active
-- **LED 3**: MINOR mode active
-- **LED 4**: Input level indicator
-- **LED 5**: High resonance indicator
-
-## Sound Design Tips
-
-1. **Subtle Shimmer**: Set the mix knob around 20-30%, use FIFTH mode, moderate damping
-2. **Drone Pad**: Full wet mix, low damping (high Y knob), HARMONIC mode
-3. **Plucked Resonance**: Feed in percussive sounds, moderate damping, MAJOR or MINOR modes
-4. **Pitch Tracking**: Use steady tones and adjust X knob to match the input frequency
-5. **Modulation**: Patch an LFO into CV1 for vibrato/tremolo effects
+All 6 LEDs indicate the current chord mode:
+- **LED 0**: HARMONIC mode (also lit for ADD9)
+- **LED 1**: FIFTH mode
+- **LED 2**: MAJOR7 mode
+- **LED 3**: MINOR7 mode
+- **LED 4**: DIM mode
+- **LED 5**: SUS4 mode (also lit for ADD9)
 
 ## Future Enhancements
 
 Potential additions for this module:
-- Individual string level controls
-- Brightness/tone control via CV2
-- Trigger input to manually excite strings
-- Stereo output with string panning
-- More complex damping models
-- Position parameter (excitation point on string)
-
-## Technical Details
-
-- Sample Rate: 48kHz
-- Maximum delay length: 960 samples (~50Hz minimum frequency)
-- Minimum delay length: 60 samples (~800Hz maximum frequency)
-- Number of strings: 3
-- Synthesis method: Karplus-Strong with one-pole lowpass damping
+- 1V/octave pitch tracking on CV1
 
 ## Building
 
