@@ -7,7 +7,7 @@ set(PICO_BOARD pico)
 include(pico_sdk_import.cmake)
 
 # Project name and languages
-project(resonating-strings C CXX ASM)
+project(resonator C CXX ASM)
 
 # Set C++ standard
 set(CMAKE_C_STANDARD 11)
@@ -17,12 +17,12 @@ set(CMAKE_CXX_STANDARD 17)
 pico_sdk_init()
 
 # Add executable target
-add_executable(resonating-strings
+add_executable(resonator
     main.cpp
 )
 
 # Link libraries required by the Pico SDK and ComputerCard
-target_link_libraries(resonating-strings
+target_link_libraries(resonator
     pico_stdlib
     hardware_gpio
     hardware_pwm
@@ -38,14 +38,14 @@ target_link_libraries(resonating-strings
 )
 
 # Create map/bin/hex/uf2 files
-pico_add_extra_outputs(resonating-strings)
+pico_add_extra_outputs(resonator)
 
 # Enable USB output for debugging (optional)
-pico_enable_stdio_usb(resonating-strings 1)
-pico_enable_stdio_uart(resonating-strings 0)
+pico_enable_stdio_usb(resonator 1)
+pico_enable_stdio_uart(resonator 0)
 
 # Set compiler flags for optimization
-target_compile_options(resonating-strings PRIVATE
+target_compile_options(resonator PRIVATE
     -Wall
     -Wextra
     -O2
@@ -54,13 +54,13 @@ target_compile_options(resonating-strings PRIVATE
 )
 
 # Define preprocessor macros
-target_compile_definitions(resonating-strings PRIVATE
+target_compile_definitions(resonator PRIVATE
     PICO_DEFAULT_UART=0
     PICO_DEFAULT_UART_TX_PIN=0
     PICO_DEFAULT_UART_RX_PIN=1
 )
 
 # Include directories
-target_include_directories(resonating-strings PRIVATE
+target_include_directories(resonator PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )

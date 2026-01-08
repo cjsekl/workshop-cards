@@ -61,24 +61,24 @@ echo "Building audio delay..."
 make -j$(nproc)
 
 # Check if .uf2 file was created
-if [ -f "resonating-strings.uf2" ]; then
+if [ -f "resonator.uf2" ]; then
     echo ""
     echo "========================================="
     echo "BUILD SUCCESSFUL!"
     echo "========================================="
     echo "Generated files:"
-    echo "  resonating-strings.uf2    - Flash file for Workshop System"
-    echo "  resonating-strings.elf    - Debug executable"
-    echo "  resonating-strings.bin    - Binary file"
-    echo "  resonating-strings.hex    - Hex file"
+    echo "  resonator.uf2    - Flash file for Workshop System"
+    echo "  resonator.elf    - Debug executable"
+    echo "  resonator.bin    - Binary file"
+    echo "  resonator.hex    - Hex file"
     echo ""
     echo "To flash to Workshop System:"
     echo "1. Hold down BOOTSEL button on the computer module"
     echo "2. Connect USB cable"
     echo "3. Release BOOTSEL button"
-    echo "4. Copy resonating-strings.uf2 to the RPI-RP2 drive"
+    echo "4. Copy resonator.uf2 to the RPI-RP2 drive"
     echo ""
-    echo "File location: $(pwd)/resonating-strings.uf2"
+    echo "File location: $(pwd)/resonator.uf2"
     echo "========================================="
 else
     echo ""
