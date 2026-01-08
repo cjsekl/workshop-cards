@@ -1,6 +1,7 @@
-# Resonator
+# Resonating Strings
 
-A sympathetic resonator workshop card inspired by the Mutable Instruments Rings module. This implements four resonating strings using Karplus-Strong synthesis, creating rich, harmonic textures.
+A sympathetic resonator workshop card inspired by the Mutable Instruments Rings module and the tanpura.
+It has four resonating Karplus-Strong strings that, when excited, creates creating rich, harmonic textures.
 
 ## Description
 
@@ -8,7 +9,6 @@ The sympathetic resonator simulates the behavior of strings that vibrate in resp
 
 ## How It Works
 
-The module uses Karplus-Strong synthesis, a simple but effective physical modeling technique:
 - Each string is implemented as a delay line with feedback
 - A lowpass filter in the feedback path simulates damping (energy loss)
 - The delay time determines the pitch of each string
@@ -52,6 +52,7 @@ All 6 LEDs indicate the current chord mode:
 ## Future Enhancements
 
 Potential additions for this module:
+- More chord modes?
 - 1V/octave pitch tracking on CV1
 
 ## Building
@@ -70,4 +71,5 @@ This module is inspired by the sympathetic resonator mode of the Mutable Instrum
 ## References
 
 - [Mutable Instruments Rings Source Code](https://github.com/pichenettes/eurorack/tree/master/rings)
+- [Tanpura](https://en.wikipedia.org/wiki/Tanpura)
 - [Karplus-Strong Synthesis](https://en.wikipedia.org/wiki/Karplus%E2%80%93Strong_string_synthesis)

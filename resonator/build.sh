@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Workshop System Audio Delay Build Script
-# Builds the audio delay for Music Thing Modular Workshop System
+# Workshop System Resonator Build Script
+# Builds the resonator for Music Thing Modular Workshop System
 
 set -e  # Exit on any error
 
 echo "========================================="
-echo "Workshop System Audio Delay Build Script"
+echo "Workshop System Resonator Build Script"
 echo "========================================="
 
 # Check for required tools
@@ -57,7 +57,7 @@ echo "Configuring project with CMake..."
 cmake .. -DCMAKE_BUILD_TYPE=Release
 
 # Build the project
-echo "Building audio delay..."
+echo "Building resonator..."
 make -j$(nproc)
 
 # Check if .uf2 file was created
