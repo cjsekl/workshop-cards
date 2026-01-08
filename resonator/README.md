@@ -1,4 +1,4 @@
-# Resonating Strings
+# Resonator
 
 A sympathetic resonator workshop card inspired by the Mutable Instruments Rings module and the tanpura.
 It has four resonating Karplus-Strong strings that, when excited, creates creating rich, harmonic textures.
@@ -65,10 +65,6 @@ Use the standard Workshop System build process:
 ```
 
 This will generate a `resonator.uf2` file in the `build/` directory.
-
-## Inspiration
-
-This module is inspired by the sympathetic resonator mode of the Mutable Instruments Rings module, which uses a bank of parallel resonators to create rich, harmonic textures. The Rings module features more sophisticated DSP with multiple resonator modes, but this simplified implementation captures the essential character of sympathetic resonance.
 
 ## References
 
