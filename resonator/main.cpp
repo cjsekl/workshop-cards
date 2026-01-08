@@ -37,9 +37,11 @@ private:
         MINOR7 = 3,      // 1:1, 6:5, 3:2, 9:5 (minor 7th chord)
         DIM = 4,         // 1:1, 6:5, 36:25, 3:2 (diminished)
         SUS4 = 5,        // 1:1, 4:3, 3:2, 2:1 (suspended 4th)
-        ADD9 = 6         // 1:1, 5:4, 3:2, 9:4 (major add 9)
+        ADD9 = 6,        // 1:1, 5:4, 3:2, 9:4 (major add 9)
+        TANPURA_PA = 7,  // 1:1, 3:2, 2:1, 4:1 (Sa, Pa, Sa', Sa'')
+        TANPURA_MA = 8   // 1:1, 4:3, 2:1, 4:1 (Sa, Ma, Sa', Sa'')
     };
-    static const int NUM_MODES = 7;
+    static const int NUM_MODES = 9;
     ChordMode currentMode;
     bool lastSwitchDown;
 
@@ -154,6 +156,18 @@ private:
                 num2 = 5; den2 = 4;
                 num3 = 3; den3 = 2;
                 num4 = 9; den4 = 4;
+                break;
+            case TANPURA_PA:
+                // Tanpura Pa: 1:1, 3:2, 2:1, 4:1 (Sa, Pa, Sa', Sa'')
+                num2 = 3; den2 = 2;
+                num3 = 2; den3 = 1;
+                num4 = 4; den4 = 1;
+                break;
+            case TANPURA_MA:
+                // Tanpura Ma: 1:1, 4:3, 2:1, 4:1 (Sa, Ma, Sa', Sa'')
+                num2 = 4; den2 = 3;
+                num3 = 2; den3 = 1;
+                num4 = 4; den4 = 1;
                 break;
         }
     }
@@ -298,12 +312,12 @@ protected:
         // LED indicators - all 6 LEDs show chord mode
         // LED 0: HARMONIC, LED 1: FIFTH, LED 2: MAJOR7
         // LED 3: MINOR7, LED 4: DIM, LED 5: SUS4
-        // ADD9 (mode 6): LEDs 0+5 both on
+        // ADD9 (mode 6): LEDs 0+5, TANPURA_PA (mode 7): LEDs 1+4, TANPURA_MA (mode 8): LEDs 2+3
         LedOn(0, currentMode == HARMONIC || currentMode == ADD9);
-        LedOn(1, currentMode == FIFTH);
-        LedOn(2, currentMode == MAJOR7);
-        LedOn(3, currentMode == MINOR7);
-        LedOn(4, currentMode == DIM);
+        LedOn(1, currentMode == FIFTH || currentMode == TANPURA_PA);
+        LedOn(2, currentMode == MAJOR7 || currentMode == TANPURA_MA);
+        LedOn(3, currentMode == MINOR7 || currentMode == TANPURA_MA);
+        LedOn(4, currentMode == DIM || currentMode == TANPURA_PA);
         LedOn(5, currentMode == SUS4 || currentMode == ADD9);
     }
 };
