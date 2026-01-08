@@ -1,7 +1,12 @@
 #include "ComputerCard.h"
 
-// Resonator Workshop System Computer Card
-// Four resonating strings using Karplus-Strong synthesis
+/**
+Resonator Workshop System Computer Card - by Johan Eklund
+version 0.1 - 2026-01-08
+
+Four resonating strings using Karplus-Strong synthesis
+*/
+
 class ResonatingStrings : public ComputerCard
 {
 private:
