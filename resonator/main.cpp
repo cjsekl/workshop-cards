@@ -50,9 +50,6 @@ private:
     ChordMode currentMode;
     bool lastSwitchDown;
 
-    // Excitation detector (for sympathetic response)
-    int32_t envelopeFollower;
-
     // Pulse excitation state
     int32_t pulseExciteEnvelope;
     uint32_t noiseState;
@@ -60,30 +57,27 @@ private:
     // DC blocker states for each string
     int32_t dcState1, dcState2, dcState3, dcState4;
 
-    // Initialize delay lines with noise burst
-    void initializeString(int16_t* delayLine, int length) {
-        for (int i = 0; i < length && i < MAX_DELAY_SIZE; i++) {
-            // Simple pseudo-random noise
-            int16_t noise = (int16_t)((i * 1103515245 + 12345) & 0x7FFF) - 16384;
-            delayLine[i] = noise >> 3;  // Reduce amplitude
-        }
-    }
-
     // One-pole lowpass filter for damping
     int32_t dampingFilter(int32_t input, int32_t& state, int32_t coefficient) {
         state += (((input - state) * coefficient + 32768) >> 16);
         return state;
     }
 
-    // Process one string
+    // Process one string with linear interpolation for fractional delay
     int32_t processString(int16_t* delayLine, int& writeIndex, int delayLength,
                          int32_t& filterState, int32_t& dcState, int32_t excitation,
-                         int32_t dampingCoeff, int32_t brightness) {
-        // Read from delay line
-        int readIndex = writeIndex - delayLength;
-        if (readIndex < 0) readIndex += MAX_DELAY_SIZE;
+                         int32_t dampingCoeff, int32_t frac) {
+        // Read two adjacent samples from delay line
+        int readIndex1 = writeIndex - delayLength;
+        if (readIndex1 < 0) readIndex1 += MAX_DELAY_SIZE;
+        int readIndex2 = readIndex1 - 1;
+        if (readIndex2 < 0) readIndex2 += MAX_DELAY_SIZE;
 
-        int32_t delayedSample = delayLine[readIndex];
+        int32_t sample1 = delayLine[readIndex1];
+        int32_t sample2 = delayLine[readIndex2];
+
+        // Linear interpolation: blend based on fractional part (frac is 0-255)
+        int32_t delayedSample = ((sample1 * (256 - frac)) + (sample2 * frac)) >> 8;
 
         // Apply damping filter
         int32_t dampedSample = dampingFilter(delayedSample, filterState, dampingCoeff);
@@ -180,7 +174,6 @@ public:
                           delayLength1(100), delayLength2(150), delayLength3(200), delayLength4(400),
                           filterState1(0), filterState2(0), filterState3(0), filterState4(0),
                           currentMode(FIFTH), lastSwitchDown(true),
-                          envelopeFollower(0),
                           pulseExciteEnvelope(0), noiseState(12345),
                           dcState1(0), dcState2(0), dcState3(0), dcState4(0) {
         // Initialize delay lines with silence
@@ -226,12 +219,23 @@ protected:
         int num1 = 1, den1 = 1, num2 = 2, den2 = 1, num3 = 3, den3 = 1, num4 = 4, den4 = 1;
         getFrequencyRatios(num1, den1, num2, den2, num3, den3, num4, den4);
 
-        // Calculate delay lengths for each string using integer math
+        // Calculate delay lengths for each string using fixed-point math
         // delay = baseDelay * denominator / numerator
-        delayLength1 = (baseDelay * den1) / num1;
-        delayLength2 = (baseDelay * den2) / num2;
-        delayLength3 = (baseDelay * den3) / num3;
-        delayLength4 = (baseDelay * den4) / num4;
+        // Use 8 extra bits of precision to extract fractional part for interpolation
+        int32_t delayFull1 = ((baseDelay * den1) << 8) / num1;
+        int32_t delayFull2 = ((baseDelay * den2) << 8) / num2;
+        int32_t delayFull3 = ((baseDelay * den3) << 8) / num3;
+        int32_t delayFull4 = ((baseDelay * den4) << 8) / num4;
+
+        delayLength1 = delayFull1 >> 8;  // Integer part
+        delayLength2 = delayFull2 >> 8;
+        delayLength3 = delayFull3 >> 8;
+        delayLength4 = delayFull4 >> 8;
+
+        int32_t frac1 = delayFull1 & 0xFF;  // Fractional part (0-255)
+        int32_t frac2 = delayFull2 & 0xFF;
+        int32_t frac3 = delayFull3 & 0xFF;
+        int32_t frac4 = delayFull4 & 0xFF;
 
         // Clamp to valid range
         if (delayLength1 < 10) delayLength1 = 10;
@@ -251,11 +255,7 @@ protected:
         // Map to filter coefficient (more damping = lower coefficient = darker sound)
         int32_t dampingCoeff = 32000 + ((dampingKnob * 33300) / 4095);
 
-        // Envelope follower - detect input energy
-        int32_t absInput = (audioIn < 0) ? -audioIn : audioIn;
-        envelopeFollower = ((envelopeFollower * 255) >> 8) + (absInput >> 3);
-
-        // Excitation amounts for each string based on envelope
+        // Excitation amounts for each string
         // String 1 gets full input, others get scaled versions (sympathetic response)
         int32_t excitation1 = audioIn >> 2;  // Direct excitation
         int32_t excitation2 = audioIn >> 4;  // Sympathetic response
@@ -280,15 +280,15 @@ protected:
             pulseExciteEnvelope = (pulseExciteEnvelope * 250) >> 8;
         }
 
-        // Process each string
+        // Process each string with fractional delay interpolation
         int32_t out1 = processString(delayLine1, writeIndex1, delayLength1,
-                                     filterState1, dcState1, excitation1, dampingCoeff, 0);
+                                     filterState1, dcState1, excitation1, dampingCoeff, frac1);
         int32_t out2 = processString(delayLine2, writeIndex2, delayLength2,
-                                     filterState2, dcState2, excitation2, dampingCoeff, 0);
+                                     filterState2, dcState2, excitation2, dampingCoeff, frac2);
         int32_t out3 = processString(delayLine3, writeIndex3, delayLength3,
-                                     filterState3, dcState3, excitation3, dampingCoeff, 0);
+                                     filterState3, dcState3, excitation3, dampingCoeff, frac3);
         int32_t out4 = processString(delayLine4, writeIndex4, delayLength4,
-                                     filterState4, dcState4, excitation4, dampingCoeff, 0);
+                                     filterState4, dcState4, excitation4, dampingCoeff, frac4);
 
         // Mix strings together
         int32_t resonatorOut = (out1 + out2 + out3 + out4) / 4;
