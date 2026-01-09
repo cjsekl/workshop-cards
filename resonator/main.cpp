@@ -7,6 +7,59 @@ version 0.3 - 2026-01-09
 Four resonating strings using Karplus-Strong synthesis
 */
 
+// Delay lookup table for 1V/oct pitch control
+// 341 entries per octave, inverse exponential curve
+// Higher input = shorter delay = higher pitch
+// Use with ExpDelay(): oct = in/341, suboct = in%341, return delay_vals[suboct] >> oct
+static const uint16_t delay_vals[341] = {
+    61440, 61315, 61190, 61066, 60942, 60818, 60695, 60571, 60448, 60326,
+    60203, 60081, 59959, 59837, 59716, 59594, 59473, 59353, 59232, 59112,
+    58992, 58872, 58752, 58633, 58514, 58395, 58277, 58158, 58040, 57922,
+    57805, 57687, 57570, 57453, 57337, 57220, 57104, 56988, 56872, 56757,
+    56642, 56527, 56412, 56297, 56183, 56069, 55955, 55841, 55728, 55615,
+    55502, 55389, 55277, 55164, 55052, 54941, 54829, 54718, 54607, 54496,
+    54385, 54275, 54164, 54054, 53945, 53835, 53726, 53617, 53508, 53399,
+    53291, 53183, 53075, 52967, 52859, 52752, 52645, 52538, 52431, 52325,
+    52218, 52112, 52007, 51901, 51796, 51690, 51585, 51481, 51376, 51272,
+    51168, 51064, 50960, 50857, 50753, 50650, 50547, 50445, 50342, 50240,
+    50138, 50036, 49935, 49833, 49732, 49631, 49530, 49430, 49329, 49229,
+    49129, 49030, 48930, 48831, 48731, 48632, 48534, 48435, 48337, 48239,
+    48141, 48043, 47945, 47848, 47751, 47654, 47557, 47461, 47364, 47268,
+    47172, 47076, 46981, 46885, 46790, 46695, 46600, 46506, 46411, 46317,
+    46223, 46129, 46035, 45942, 45849, 45755, 45663, 45570, 45477, 45385,
+    45293, 45201, 45109, 45017, 44926, 44835, 44744, 44653, 44562, 44472,
+    44381, 44291, 44201, 44112, 44022, 43933, 43843, 43754, 43665, 43577,
+    43488, 43400, 43312, 43224, 43136, 43049, 42961, 42874, 42787, 42700,
+    42613, 42527, 42440, 42354, 42268, 42182, 42097, 42011, 41926, 41841,
+    41756, 41671, 41586, 41502, 41418, 41334, 41250, 41166, 41082, 40999,
+    40916, 40832, 40750, 40667, 40584, 40502, 40420, 40338, 40256, 40174,
+    40092, 40011, 39930, 39849, 39768, 39687, 39606, 39526, 39446, 39365,
+    39286, 39206, 39126, 39047, 38967, 38888, 38809, 38731, 38652, 38573,
+    38495, 38417, 38339, 38261, 38183, 38106, 38028, 37951, 37874, 37797,
+    37720, 37644, 37567, 37491, 37415, 37339, 37263, 37188, 37112, 37037,
+    36961, 36886, 36811, 36737, 36662, 36588, 36513, 36439, 36365, 36291,
+    36218, 36144, 36071, 35998, 35924, 35851, 35779, 35706, 35634, 35561,
+    35489, 35417, 35345, 35273, 35202, 35130, 35059, 34988, 34916, 34846,
+    34775, 34704, 34634, 34563, 34493, 34423, 34353, 34284, 34214, 34144,
+    34075, 34006, 33937, 33868, 33799, 33731, 33662, 33594, 33525, 33457,
+    33389, 33322, 33254, 33186, 33119, 33052, 32985, 32918, 32851, 32784,
+    32718, 32651, 32585, 32519, 32453, 32387, 32321, 32255, 32190, 32124,
+    32059, 31994, 31929, 31864, 31800, 31735, 31671, 31606, 31542, 31478,
+    31414, 31350, 31287, 31223, 31160, 31096, 31033, 30970, 30907, 30845,
+    30782
+};
+
+// Exponential delay lookup for 1V/oct pitch control
+// in: 0-4095 (knob + CV combined)
+// Returns delay in samples (right-shifted by octave)
+int32_t ExpDelay(int32_t in) {
+    if (in < 0) in = 0;
+    if (in > 4091) in = 4091;
+    int32_t oct = in / 341;
+    int32_t suboct = in % 341;
+    return delay_vals[suboct] >> oct;
+}
+
 class ResonatingStrings : public ComputerCard
 {
 private:
@@ -200,19 +253,23 @@ protected:
         }
         lastSwitchDown = switchDown;
 
-        // FREQUENCY CONTROL (X Knob + CV1)
-        int32_t frequencyKnob = KnobVal(X);  // 0-4095
-        int16_t cv1 = CVIn1();
+        // FREQUENCY CONTROL (X Knob + CV1) - 1V/oct
+        int32_t frequencyKnob = KnobVal(X);  // 0-4095 sets base pitch / transpose
+        int16_t cv1 = CVIn1();               // CV input (unipolar or bipolar)
 
-        int32_t combinedFreq = frequencyKnob + cv1;
-        if (combinedFreq > 4095) combinedFreq = 4095;
-        if (combinedFreq < 0) combinedFreq = 0;
+        // Combine knob and CV
+        int32_t pitchCV = frequencyKnob + cv1;
+        if (pitchCV > 4095) pitchCV = 4095;
+        if (pitchCV < 0) pitchCV = 0;
 
-        // Map to delay length (50Hz to 800Hz range)
-        // At 48kHz: 50Hz = 960 samples, 800Hz = 60 samples
-        const int MIN_DELAY = 60;
+        // Get delay from exponential lookup table (1V/oct)
+        int32_t baseDelay = ExpDelay(pitchCV);
+
+        // Clamp to usable range
+        const int MIN_DELAY = 15;
         const int MAX_DELAY = 960;
-        int32_t baseDelay = MAX_DELAY - ((combinedFreq * (MAX_DELAY - MIN_DELAY)) / 4095);
+        if (baseDelay < MIN_DELAY) baseDelay = MIN_DELAY;
+        if (baseDelay > MAX_DELAY) baseDelay = MAX_DELAY;
 
         // Get frequency ratios based on current chord mode
         // Using integer numerator/denominator to avoid floating-point
