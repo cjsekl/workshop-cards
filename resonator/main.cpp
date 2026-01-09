@@ -5,7 +5,6 @@ Resonator Workshop System Computer Card - by Johan Eklund
 version 0.2 - 2026-01-08
 
 Four resonating strings using Karplus-Strong synthesis
-Now with all-pass filter for smoother frequency transitions
 */
 
 class ResonatingStrings : public ComputerCard
