@@ -54,8 +54,9 @@ private:
     int32_t pulseExciteEnvelope;
     uint32_t noiseState;
 
-    // DC blocker states for each string
-    int32_t dcState1, dcState2, dcState3, dcState4;
+    // DC blocker states for output (proper highpass filter)
+    int32_t dcX1_1, dcY1_1;  // Output channel 1
+    int32_t dcX1_2, dcY1_2;  // Output channel 2
 
     // One-pole lowpass filter for damping
     int32_t dampingFilter(int32_t input, int32_t& state, int32_t coefficient) {
@@ -63,9 +64,18 @@ private:
         return state;
     }
 
+    // DC blocker highpass filter: y[n] = x[n] - x[n-1] + R * y[n-1]
+    // R = 0.995 ≈ 32604/32768 in Q15 fixed-point
+    int32_t dcBlocker(int32_t input, int32_t& x1, int32_t& y1) {
+        int32_t output = input - x1 + ((y1 * 32604) >> 15);
+        x1 = input;
+        y1 = output;
+        return output;
+    }
+
     // Process one string with linear interpolation for fractional delay
     int32_t processString(int16_t* delayLine, int& writeIndex, int delayLength,
-                         int32_t& filterState, int32_t& dcState, int32_t excitation,
+                         int32_t& filterState, int32_t excitation,
                          int32_t dampingCoeff, int32_t frac) {
         // Read two adjacent samples from delay line
         int readIndex1 = writeIndex - delayLength;
@@ -81,10 +91,6 @@ private:
 
         // Apply damping filter
         int32_t dampedSample = dampingFilter(delayedSample, filterState, dampingCoeff);
-
-        // DC blocker: remove DC offset to prevent accumulation
-        dcState += (dampedSample - dcState) >> 8;  // Slow DC tracking
-        dampedSample -= dcState;  // Subtract DC component
 
         // Add excitation (input signal)
         int32_t newSample = dampedSample + excitation;
@@ -175,7 +181,7 @@ public:
                           filterState1(0), filterState2(0), filterState3(0), filterState4(0),
                           currentMode(FIFTH), lastSwitchDown(true),
                           pulseExciteEnvelope(0), noiseState(12345),
-                          dcState1(0), dcState2(0), dcState3(0), dcState4(0) {
+                          dcX1_1(0), dcY1_1(0), dcX1_2(0), dcY1_2(0) {
         // Initialize delay lines with silence
         for (int i = 0; i < MAX_DELAY_SIZE; i++) {
             delayLine1[i] = 0;
@@ -282,13 +288,13 @@ protected:
 
         // Process each string with fractional delay interpolation
         int32_t out1 = processString(delayLine1, writeIndex1, delayLength1,
-                                     filterState1, dcState1, excitation1, dampingCoeff, frac1);
+                                     filterState1, excitation1, dampingCoeff, frac1);
         int32_t out2 = processString(delayLine2, writeIndex2, delayLength2,
-                                     filterState2, dcState2, excitation2, dampingCoeff, frac2);
+                                     filterState2, excitation2, dampingCoeff, frac2);
         int32_t out3 = processString(delayLine3, writeIndex3, delayLength3,
-                                     filterState3, dcState3, excitation3, dampingCoeff, frac3);
+                                     filterState3, excitation3, dampingCoeff, frac3);
         int32_t out4 = processString(delayLine4, writeIndex4, delayLength4,
-                                     filterState4, dcState4, excitation4, dampingCoeff, frac4);
+                                     filterState4, excitation4, dampingCoeff, frac4);
 
         // Mix strings together - stereo mid/side
         // Out1 (mid): all strings summed - mono compatible
@@ -304,6 +310,10 @@ protected:
 
         int32_t mixedOutput1 = ((audioIn * dryGain) + (resonatorOut1 * wetGain) + 2048) >> 12;
         int32_t mixedOutput2 = ((audioIn * dryGain) + (resonatorOut2 * wetGain) + 2048) >> 12;
+
+        // Apply DC blocker to outputs (outside feedback loop)
+        mixedOutput1 = dcBlocker(mixedOutput1, dcX1_1, dcY1_1);
+        mixedOutput2 = dcBlocker(mixedOutput2, dcX1_2, dcY1_2);
 
         // Clipping
         if (mixedOutput1 > 2047) mixedOutput1 = 2047;
