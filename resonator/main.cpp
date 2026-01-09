@@ -2,7 +2,7 @@
 
 /**
 Resonator Workshop System Computer Card - by Johan Eklund
-version 0.1 - 2026-01-08
+version 0.2 - 2026-01-08
 
 Four resonating strings using Karplus-Strong synthesis
 */
@@ -60,6 +60,10 @@ private:
     // DC blocker states for each string
     int32_t dcState1, dcState2, dcState3, dcState4;
 
+    // All-pass filter states for fractional delay and smooth transitions
+    int32_t allpassX1_1, allpassX1_2, allpassX1_3, allpassX1_4;  // Previous input
+    int32_t allpassY1_1, allpassY1_2, allpassY1_3, allpassY1_4;  // Previous output
+
     // Initialize delay lines with noise burst
     void initializeString(int16_t* delayLine, int length) {
         for (int i = 0; i < length && i < MAX_DELAY_SIZE; i++) {
@@ -75,18 +79,38 @@ private:
         return state;
     }
 
+    // First-order all-pass filter for fractional delay and smooth transitions
+    // Transfer function: H(z) = (a + z^-1) / (1 + a*z^-1)
+    // y[n] = -a*x[n] + x[n-1] + a*y[n-1]
+    // coefficient range: -32768 to 32767 (fixed-point representation of -1.0 to ~1.0)
+    int32_t allpassFilter(int32_t input, int32_t& x1, int32_t& y1, int32_t coefficient) {
+        // Fixed-point math: coefficient is scaled by 32768
+        // output = -a*input + x[n-1] + a*y[n-1]
+        int32_t output = x1 - ((input * coefficient + 16384) >> 15) + ((y1 * coefficient + 16384) >> 15);
+
+        // Update states
+        x1 = input;
+        y1 = output;
+
+        return output;
+    }
+
     // Process one string
     int32_t processString(int16_t* delayLine, int& writeIndex, int delayLength,
                          int32_t& filterState, int32_t& dcState, int32_t excitation,
-                         int32_t dampingCoeff, int32_t brightness) {
+                         int32_t dampingCoeff, int32_t brightness,
+                         int32_t& allpassX1, int32_t& allpassY1, int32_t allpassCoeff) {
         // Read from delay line
         int readIndex = writeIndex - delayLength;
         if (readIndex < 0) readIndex += MAX_DELAY_SIZE;
 
         int32_t delayedSample = delayLine[readIndex];
 
+        // Apply all-pass filter for smoother frequency transitions
+        int32_t filteredSample = allpassFilter(delayedSample, allpassX1, allpassY1, allpassCoeff);
+
         // Apply damping filter
-        int32_t dampedSample = dampingFilter(delayedSample, filterState, dampingCoeff);
+        int32_t dampedSample = dampingFilter(filteredSample, filterState, dampingCoeff);
 
         // DC blocker: remove DC offset to prevent accumulation
         dcState += (dampedSample - dcState) >> 8;  // Slow DC tracking
@@ -182,7 +206,9 @@ public:
                           currentMode(FIFTH), lastSwitchDown(true),
                           envelopeFollower(0),
                           pulseExciteEnvelope(0), noiseState(12345),
-                          dcState1(0), dcState2(0), dcState3(0), dcState4(0) {
+                          dcState1(0), dcState2(0), dcState3(0), dcState4(0),
+                          allpassX1_1(0), allpassX1_2(0), allpassX1_3(0), allpassX1_4(0),
+                          allpassY1_1(0), allpassY1_2(0), allpassY1_3(0), allpassY1_4(0) {
         // Initialize delay lines with silence
         for (int i = 0; i < MAX_DELAY_SIZE; i++) {
             delayLine1[i] = 0;
@@ -280,15 +306,24 @@ protected:
             pulseExciteEnvelope = (pulseExciteEnvelope * 250) >> 8;
         }
 
+        // All-pass filter coefficient for smooth frequency transitions
+        // Value around 0.4 in fixed-point (scaled by 32768) = 13107
+        // This provides smooth transitions without excessive phase shift
+        int32_t allpassCoeff = 13107;
+
         // Process each string
         int32_t out1 = processString(delayLine1, writeIndex1, delayLength1,
-                                     filterState1, dcState1, excitation1, dampingCoeff, 0);
+                                     filterState1, dcState1, excitation1, dampingCoeff, 0,
+                                     allpassX1_1, allpassY1_1, allpassCoeff);
         int32_t out2 = processString(delayLine2, writeIndex2, delayLength2,
-                                     filterState2, dcState2, excitation2, dampingCoeff, 0);
+                                     filterState2, dcState2, excitation2, dampingCoeff, 0,
+                                     allpassX1_2, allpassY1_2, allpassCoeff);
         int32_t out3 = processString(delayLine3, writeIndex3, delayLength3,
-                                     filterState3, dcState3, excitation3, dampingCoeff, 0);
+                                     filterState3, dcState3, excitation3, dampingCoeff, 0,
+                                     allpassX1_3, allpassY1_3, allpassCoeff);
         int32_t out4 = processString(delayLine4, writeIndex4, delayLength4,
-                                     filterState4, dcState4, excitation4, dampingCoeff, 0);
+                                     filterState4, dcState4, excitation4, dampingCoeff, 0,
+                                     allpassX1_4, allpassY1_4, allpassCoeff);
 
         // Mix strings together - stereo mid/side
         // Out1 (mid): all strings summed - mono compatible
