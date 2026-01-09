@@ -64,6 +64,11 @@ private:
     int32_t allpassX1_1, allpassX1_2, allpassX1_3, allpassX1_4;  // Previous input
     int32_t allpassY1_1, allpassY1_2, allpassY1_3, allpassY1_4;  // Previous output
 
+    // Stereo delay buffer for stereo width
+    static const int STEREO_DELAY_SIZE = 720;  // 15ms at 48kHz
+    int16_t stereoDelayBuffer[STEREO_DELAY_SIZE];
+    int stereoDelayIndex;
+
     // Initialize delay lines with noise burst
     void initializeString(int16_t* delayLine, int length) {
         for (int i = 0; i < length && i < MAX_DELAY_SIZE; i++) {
@@ -208,13 +213,17 @@ public:
                           pulseExciteEnvelope(0), noiseState(12345),
                           dcState1(0), dcState2(0), dcState3(0), dcState4(0),
                           allpassX1_1(0), allpassX1_2(0), allpassX1_3(0), allpassX1_4(0),
-                          allpassY1_1(0), allpassY1_2(0), allpassY1_3(0), allpassY1_4(0) {
+                          allpassY1_1(0), allpassY1_2(0), allpassY1_3(0), allpassY1_4(0),
+                          stereoDelayIndex(0) {
         // Initialize delay lines with silence
         for (int i = 0; i < MAX_DELAY_SIZE; i++) {
             delayLine1[i] = 0;
             delayLine2[i] = 0;
             delayLine3[i] = 0;
             delayLine4[i] = 0;
+        }
+        for (int i = 0; i < STEREO_DELAY_SIZE; i++) {
+            stereoDelayBuffer[i] = 0;
         }
     }
 
@@ -342,9 +351,20 @@ protected:
 
         int16_t output = (int16_t)mixedOutput;
 
-        // Output to both channels
+        // Write to stereo delay buffer
+        stereoDelayBuffer[stereoDelayIndex] = output;
+
+        // Read delayed sample for stereo width
+        int stereoReadIndex = stereoDelayIndex - STEREO_DELAY_SIZE + 1;
+        if (stereoReadIndex < 0) stereoReadIndex += STEREO_DELAY_SIZE;
+        int16_t delayedOutput = stereoDelayBuffer[stereoReadIndex];
+
+        // Advance stereo delay index
+        stereoDelayIndex = (stereoDelayIndex + 1) % STEREO_DELAY_SIZE;
+
+        // Output: Left = current, Right = delayed
         AudioOut1(output);
-        AudioOut2(output);
+        AudioOut2(delayedOutput);
 
         // LED indicators - all 6 LEDs show chord mode
         // LED 0: HARMONIC, LED 1: FIFTH, LED 2: MAJOR7
