@@ -252,12 +252,24 @@ protected:
         int num1 = 1, den1 = 1, num2 = 2, den2 = 1, num3 = 3, den3 = 1, num4 = 4, den4 = 1;
         getFrequencyRatios(num1, den1, num2, den2, num3, den3, num4, den4);
 
-        // Calculate delay lengths for each string using integer math
-        // delay = baseDelay * denominator / numerator
-        delayLength1 = (baseDelay * den1) / num1;
-        delayLength2 = (baseDelay * den2) / num2;
-        delayLength3 = (baseDelay * den3) / num3;
-        delayLength4 = (baseDelay * den4) / num4;
+        // Calculate delay lengths for each string using fixed-point math
+        // Keep fractional part for all-pass filter coefficient calculation
+        // delay = baseDelay * denominator / numerator, scaled by 256 for 8 fractional bits
+        int32_t delayScaled1 = (baseDelay * den1 * 256) / num1;
+        int32_t delayScaled2 = (baseDelay * den2 * 256) / num2;
+        int32_t delayScaled3 = (baseDelay * den3 * 256) / num3;
+        int32_t delayScaled4 = (baseDelay * den4 * 256) / num4;
+
+        // Extract integer and fractional parts
+        delayLength1 = delayScaled1 >> 8;
+        delayLength2 = delayScaled2 >> 8;
+        delayLength3 = delayScaled3 >> 8;
+        delayLength4 = delayScaled4 >> 8;
+
+        int32_t frac1 = delayScaled1 & 0xFF;
+        int32_t frac2 = delayScaled2 & 0xFF;
+        int32_t frac3 = delayScaled3 & 0xFF;
+        int32_t frac4 = delayScaled4 & 0xFF;
 
         // Clamp to valid range
         if (delayLength1 < 10) delayLength1 = 10;
@@ -306,24 +318,27 @@ protected:
             pulseExciteEnvelope = (pulseExciteEnvelope * 250) >> 8;
         }
 
-        // All-pass filter coefficient for smooth frequency transitions
-        // Value around 0.4 in fixed-point (scaled by 32768) = 13107
-        // This provides smooth transitions without excessive phase shift
-        int32_t allpassCoeff = 13107;
+        // All-pass filter coefficients for fractional delay
+        // Formula: a = (1-d)/(1+d) where d is fractional delay (0-1)
+        // In fixed-point: frac is 0-255, output scaled by 32768 (Q15)
+        int32_t allpassCoeff1 = ((256 - frac1) * 32768) / (256 + frac1);
+        int32_t allpassCoeff2 = ((256 - frac2) * 32768) / (256 + frac2);
+        int32_t allpassCoeff3 = ((256 - frac3) * 32768) / (256 + frac3);
+        int32_t allpassCoeff4 = ((256 - frac4) * 32768) / (256 + frac4);
 
-        // Process each string
+        // Process each string with its computed fractional delay coefficient
         int32_t out1 = processString(delayLine1, writeIndex1, delayLength1,
                                      filterState1, dcState1, excitation1, dampingCoeff, 0,
-                                     allpassX1_1, allpassY1_1, allpassCoeff);
+                                     allpassX1_1, allpassY1_1, allpassCoeff1);
         int32_t out2 = processString(delayLine2, writeIndex2, delayLength2,
                                      filterState2, dcState2, excitation2, dampingCoeff, 0,
-                                     allpassX1_2, allpassY1_2, allpassCoeff);
+                                     allpassX1_2, allpassY1_2, allpassCoeff2);
         int32_t out3 = processString(delayLine3, writeIndex3, delayLength3,
                                      filterState3, dcState3, excitation3, dampingCoeff, 0,
-                                     allpassX1_3, allpassY1_3, allpassCoeff);
+                                     allpassX1_3, allpassY1_3, allpassCoeff3);
         int32_t out4 = processString(delayLine4, writeIndex4, delayLength4,
                                      filterState4, dcState4, excitation4, dampingCoeff, 0,
-                                     allpassX1_4, allpassY1_4, allpassCoeff);
+                                     allpassX1_4, allpassY1_4, allpassCoeff4);
 
         // Mix strings together
         int32_t resonatorOut = (out1 + out2 + out3 + out4) / 4;
