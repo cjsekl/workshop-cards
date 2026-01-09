@@ -290,8 +290,11 @@ protected:
         int32_t out4 = processString(delayLine4, writeIndex4, delayLength4,
                                      filterState4, dcState4, excitation4, dampingCoeff, 0);
 
-        // Mix strings together
-        int32_t resonatorOut = (out1 + out2 + out3 + out4) / 4;
+        // Mix strings together - stereo mid/side
+        // Out1 (mid): all strings summed - mono compatible
+        // Out2 (side): strings 1&3 center, strings 2&4 wide/diffuse
+        int32_t resonatorOut1 = (out1 + out2 + out3 + out4) / 4;
+        int32_t resonatorOut2 = (out1 - out2 + out3 - out4) / 4;
 
         // WET/DRY MIX (Main Knob)
         int32_t mixKnob = KnobVal(Main);  // 0-4095
@@ -299,17 +302,18 @@ protected:
         int32_t dryGain = 4095 - mixKnob;
         int32_t wetGain = mixKnob;
 
-        int32_t mixedOutput = ((audioIn * dryGain) + (resonatorOut * wetGain) + 2048) >> 12;
+        int32_t mixedOutput1 = ((audioIn * dryGain) + (resonatorOut1 * wetGain) + 2048) >> 12;
+        int32_t mixedOutput2 = ((audioIn * dryGain) + (resonatorOut2 * wetGain) + 2048) >> 12;
 
         // Clipping
-        if (mixedOutput > 2047) mixedOutput = 2047;
-        if (mixedOutput < -2047) mixedOutput = -2047;
+        if (mixedOutput1 > 2047) mixedOutput1 = 2047;
+        if (mixedOutput1 < -2047) mixedOutput1 = -2047;
+        if (mixedOutput2 > 2047) mixedOutput2 = 2047;
+        if (mixedOutput2 < -2047) mixedOutput2 = -2047;
 
-        int16_t output = (int16_t)mixedOutput;
-
-        // Output to both channels
-        AudioOut1(output);
-        AudioOut2(output);
+        // Stereo output
+        AudioOut1((int16_t)mixedOutput1);
+        AudioOut2((int16_t)mixedOutput2);
 
         // LED indicators - all 6 LEDs show chord mode
         // LED 0: HARMONIC, LED 1: FIFTH, LED 2: MAJOR7
