@@ -262,21 +262,20 @@ protected:
         int32_t pitchCV;
 
         if (Disconnected(Input::CV1)) {
-            // No CV connected: X knob controls full frequency range
-            pitchCV = KnobVal(X);  // 0-4095
+            // No CV connected: X knob controls C1-C7 range
+            // Map knob 0-4095 to pitchCV 2048-4095 (6 octaves)
+            pitchCV = 2048 + (KnobVal(X) / 2);
         } else {
             // CV connected: X knob is fine tune (±1 octave)
             // 1 octave = 341 steps
             int32_t fineTune = ((KnobVal(X) - 2048) * 341) / 2048;
 
             // CV input with 1V/oct scaling
-            // At 0V (CVIn1=0), we want the base pitch (around pitchCV=2048 for mid-range)
             // CVIn1 range: -2048 to +2047 for ±6V, so 1V = 341 counts
             int32_t scaledCV = CVIn1();  // Already 341 counts per volt
 
-            // Base offset: 2389 puts us at octave 7 in the table (C2 delay at 0V)
-            // Adjusted +341 to correct for one octave offset
-            pitchCV = 2389 + scaledCV + fineTune;
+            // Base offset: 2048 matches knob-only center position (C1 at 0V)
+            pitchCV = 2048 + scaledCV + fineTune;
         }
 
         if (pitchCV > 4095) pitchCV = 4095;
@@ -370,12 +369,15 @@ protected:
         // Mix strings together - stereo mid/side
         // Out1 (mid): all strings summed - mono compatible
         // Out2 (side): strings 1&3 center, strings 2&4 wide/diffuse
-        // int32_t resonatorOut1 = (out1 + out2 + out3 + out4) / 4;
-        // int32_t resonatorOut2 = (out1 - out2 + out3 - out4) / 4;
-
-        // TUNING MODE: fundamental only
-        int32_t resonatorOut1 = out1;
-        int32_t resonatorOut2 = out1;
+        int32_t resonatorOut1, resonatorOut2;
+        if (SwitchVal() == Switch::Up) {
+            // TUNING MODE: fundamental only
+            resonatorOut1 = out1;
+            resonatorOut2 = out1;
+        } else {
+            resonatorOut1 = (out1 + out2 + out3 + out4) / 4;
+            resonatorOut2 = (out1 - out2 + out3 - out4) / 4;
+        }
 
         // WET/DRY MIX (Main Knob)
         int32_t mixKnob = KnobVal(Main);  // 0-4095
