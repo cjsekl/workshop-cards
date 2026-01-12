@@ -330,7 +330,7 @@ protected:
 
         // Map to filter coefficient (more damping = lower coefficient = darker sound)
         int32_t dampingCoeff = 32000 + ((dampingKnob * 33300) / 4095);
-        if (dampingCoeff > 57000) dampingCoeff = 57000;  // Cap to avoid high-freq buzzing
+        //if (dampingCoeff > 57000) dampingCoeff = 57000;  // Cap to avoid high-freq buzzing
 
         // Excitation amounts for each string
         // String 1 gets full input, others get scaled versions (sympathetic response)
@@ -372,13 +372,17 @@ protected:
         // Out2 (side): strings 1&3 center, strings 2&4 wide/diffuse
         int32_t resonatorOut1, resonatorOut2;
         if (SwitchVal() == Switch::Up) {
-            // TUNING MODE: fundamental only
-            resonatorOut1 = out1;
-            resonatorOut2 = out1;
+            // TUNING MODE: fundamental only (divided by 2 to match normal mode level)
+            resonatorOut1 = out1 / 2;
+            resonatorOut2 = out1 / 2;
         } else {
-            resonatorOut1 = out1 + out2 + out3 + out4;
-            resonatorOut2 = out1 - out2 + out3 - out4;
+            resonatorOut1 = (out1 + out2 + out3 + out4) / 4;
+            resonatorOut2 = (out1 - out2 + out3 - out4) / 4;
         }
+
+        // Amplify to match other Workshop System levels
+        resonatorOut1 *= 2;
+        resonatorOut2 *= 2;
 
         // WET/DRY MIX (Main Knob)
         int32_t mixKnob = KnobVal(Main);  // 0-4095
