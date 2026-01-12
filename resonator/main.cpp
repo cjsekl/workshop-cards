@@ -330,6 +330,7 @@ protected:
 
         // Map to filter coefficient (more damping = lower coefficient = darker sound)
         int32_t dampingCoeff = 32000 + ((dampingKnob * 33300) / 4095);
+        if (dampingCoeff > 57000) dampingCoeff = 57000;  // Cap to avoid high-freq buzzing
 
         // Excitation amounts for each string
         // String 1 gets full input, others get scaled versions (sympathetic response)
