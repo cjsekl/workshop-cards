@@ -13,7 +13,6 @@ Four resonating strings using Karplus-Strong synthesis
 // Higher input = shorter delay = higher pitch
 // Formula: delay_vals[i] = 93952 / 2^(i/341)
 // Ratio across table = 2.0 (one octave)
-// Use with ExpDelay(): oct = in/341, suboct = in%341, return delay_vals[suboct] >> oct
 static const uint32_t delay_vals[341] = {
     93952, 93761, 93571, 93381, 93191, 93002, 92813, 92625, 92437, 92249,
     92062, 91875, 91688, 91502, 91316, 91131, 90946, 90761, 90577, 90393,
@@ -68,7 +67,6 @@ class ResonatingStrings : public ComputerCard
 private:
     static const int MAX_DELAY_SIZE = 1920;
 
-    // Four string delay lines
     int16_t delayLine1[MAX_DELAY_SIZE];
     int16_t delayLine2[MAX_DELAY_SIZE];
     int16_t delayLine3[MAX_DELAY_SIZE];
@@ -84,13 +82,12 @@ private:
     int delayLength3;
     int delayLength4;
 
-    // Filter states for damping
     int32_t filterState1;
     int32_t filterState2;
     int32_t filterState3;
     int32_t filterState4;
 
-    // Chord mode
+    // Chord modes
     enum ChordMode {
         HARMONIC = 0,    // 1:1, 2:1, 3:1, 4:1 (harmonic series)
         FIFTH = 1,       // 1:1, 3:2, 2:1, 3:1 (stacked fifths)
@@ -108,11 +105,9 @@ private:
     ChordMode currentMode;
     bool lastSwitchDown;
 
-    // Pulse excitation state
     int32_t pulseExciteEnvelope;
     uint32_t noiseState;
 
-    // DC blocker states for each string
     int32_t dcState1, dcState2, dcState3, dcState4;
 
     // One-pole lowpass filter for damping
@@ -137,12 +132,11 @@ private:
         // Linear interpolation: blend based on fractional part (frac is 0-255)
         int32_t delayedSample = ((sample1 * (256 - frac)) + (sample2 * frac)) >> 8;
 
-        // Apply damping filter
         int32_t dampedSample = dampingFilter(delayedSample, filterState, dampingCoeff);
 
         // DC blocker: remove DC offset to prevent accumulation
-        dcState += (dampedSample - dcState) >> 8;  // Slow DC tracking
-        dampedSample -= dcState;  // Subtract DC component
+        dcState += (dampedSample - dcState) >> 8;
+        dampedSample -= dcState;
 
         // Add excitation (input signal)
         int32_t newSample = dampedSample + excitation;
@@ -257,7 +251,6 @@ public:
 
 protected:
     void ProcessSample() override {
-        // Read inputs
         int16_t audioIn1 = AudioIn1();
         int16_t audioIn2 = AudioIn2();
         int32_t audioIn = ((int32_t)audioIn1 + (int32_t)audioIn2 + 1) >> 1;
@@ -272,7 +265,6 @@ protected:
 
         // FREQUENCY CONTROL - 1V/oct
         // CV1: ±6V maps to -2048 to 2047
-        // For 1V/oct: 1V = 341 counts from CV, need 341 counts per octave
         int32_t pitchCV;
 
         if (Disconnected(Input::CV1)) {
@@ -286,9 +278,8 @@ protected:
 
             // CV input with 1V/oct scaling
             // CVIn1 range: -2048 to +2047 for ±6V, so 1V = 341 counts
-            int32_t scaledCV = CVIn1();  // Already 341 counts per volt
-
-            // Base offset: 2048 matches knob-only center position (C1 at 0V)
+            int32_t scaledCV = CVIn1();
+            
             pitchCV = 2048 + scaledCV + fineTune;
         }
 
@@ -305,7 +296,6 @@ protected:
         if (baseDelay > MAX_DELAY) baseDelay = MAX_DELAY;
 
         // Get frequency ratios based on current chord mode
-        // Using integer numerator/denominator to avoid floating-point
         int num1 = 1, den1 = 1, num2 = 2, den2 = 1, num3 = 3, den3 = 1, num4 = 4, den4 = 1;
         getFrequencyRatios(num1, den1, num2, den2, num3, den3, num4, den4);
 
@@ -342,7 +332,7 @@ protected:
         if (dampingKnob > 4095) dampingKnob = 4095;
         if (dampingKnob < 0) dampingKnob = 0;
 
-        // Map to filter coefficient (more damping = lower coefficient = darker sound)
+        // Map to filter coefficient (more damping = lower coefficient, longer decay = higher coefficient)
         int32_t dampingCoeff = 32000 + ((dampingKnob * 33300) / 4095);
 
         // Excitation amounts for each string
@@ -385,13 +375,16 @@ protected:
         // Out2 (side): strings 1&3 center, strings 2&4 wide/diffuse
         int32_t resonatorOut1, resonatorOut2;
         if (SwitchVal() == Switch::Up) {
-            // TUNING MODE: fundamental only
-            resonatorOut1 = out1;
-            resonatorOut2 = out1;
+            // TUNING MODE: first string only
+            resonatorOut1 = out1 / 2;
+            resonatorOut2 = out1 / 2;
         } else {
             resonatorOut1 = (out1 + out2 + out3 + out4) / 4;
             resonatorOut2 = (out1 - out2 + out3 - out4) / 4;
         }
+
+        resonatorOut1 *= 2;
+        resonatorOut2 *= 2;
 
         // WET/DRY MIX (Main Knob)
         int32_t mixKnob = KnobVal(Main);  // 0-4095
@@ -428,7 +421,7 @@ protected:
 
 int main() {
     static ResonatingStrings resonator;
-    resonator.EnableNormalisationProbe();  // Enable jack detection
+    resonator.EnableNormalisationProbe();
     resonator.Run();
     return 0;
 }
