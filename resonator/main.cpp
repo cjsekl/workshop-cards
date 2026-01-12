@@ -375,8 +375,8 @@ protected:
             resonatorOut1 = out1;
             resonatorOut2 = out1;
         } else {
-            resonatorOut1 = (out1 + out2 + out3 + out4) / 4;
-            resonatorOut2 = (out1 - out2 + out3 - out4) / 4;
+            resonatorOut1 = out1 + out2 + out3 + out4;
+            resonatorOut2 = out1 - out2 + out3 - out4;
         }
 
         // WET/DRY MIX (Main Knob)
