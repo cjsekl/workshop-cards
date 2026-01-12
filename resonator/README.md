@@ -1,7 +1,7 @@
 # Resonator
 
 A sympathetic resonator workshop card inspired by the Mutable Instruments Rings module and the tanpura.
-It has four resonating Karplus-Strong strings that, when excited, creates creating rich, harmonic textures.
+It has four resonating Karplus-Strong strings that, when excited, create rich, harmonic textures.
 
 ## Description
 
@@ -22,11 +22,14 @@ The sympathetic resonator simulates the behavior of strings that vibrate in resp
 - **Main Knob**: Dry/wet mix (0 = dry signal, full = wet resonator output)
 
 ### CV Inputs
-- **CV1**: Frequency modulation (adds to X knob)
+- **CV1**: 1V/octave pitch control (X knob acts as fine tune when CV connected)
 - **CV2**: Damping modulation (adds to Y knob)
 
 ### Switch
-Cycles through nine chord modes (press switch down to advance):
+- **Up**: Tuning mode - only the fundamental string sounds
+- **Down**: Cycles through eleven chord modes
+
+#### Chord Modes
 - **HARMONIC**: Harmonic series - 1:1, 2:1, 3:1, 4:1
 - **FIFTH**: Stacked fifths - 1:1, 3:2, 2:1, 3:1
 - **MAJOR7**: Major 7th chord - 1:1, 5:4, 3:2, 15:8
@@ -36,6 +39,8 @@ Cycles through nine chord modes (press switch down to advance):
 - **ADD9**: Major add 9 - 1:1, 5:4, 3:2, 9:4
 - **TANPURA_PA**: Tanpura Pa drone - 1:1, 3:2, 2:1, 4:1 (Sa, Pa, Sa', Sa'')
 - **TANPURA_MA**: Tanpura Ma drone - 1:1, 4:3, 2:1, 4:1 (Sa, Ma, Sa', Sa'')
+- **TANPURA_NI**: Tanpura Ni drone - 1:1, 15:8, 2:1, 4:1 (Sa, Ni, Sa', Sa'')
+- **TANPURA_NI_KOMAL**: Tanpura ni drone - 1:1, 9:5, 2:1, 4:1 (Sa, ni, Sa', Sa'')
 
 ### Pulse Inputs
 - **Pulse In 1**: Trigger string excitation (pluck with noise burst)
@@ -44,18 +49,20 @@ Cycles through nine chord modes (press switch down to advance):
 ## LED Indicators
 
 All 6 LEDs indicate the current chord mode:
-- **LED 0**: HARMONIC mode (also lit for ADD9)
-- **LED 1**: FIFTH mode (also lit for TANPURA_PA)
-- **LED 2**: MAJOR7 mode (also lit for TANPURA_MA)
-- **LED 3**: MINOR7 mode (also lit for TANPURA_MA)
-- **LED 4**: DIM mode (also lit for TANPURA_PA)
-- **LED 5**: SUS4 mode (also lit for ADD9)
 
-## Future Enhancements
-
-Potential additions for this module:
-- More chord modes?
-- 1V/octave pitch tracking on CV1
+| Mode | LEDs |
+|------|------|
+| HARMONIC | 0 |
+| FIFTH | 1 |
+| MAJOR7 | 2 |
+| MINOR7 | 3 |
+| DIM | 4 |
+| SUS4 | 5 |
+| ADD9 | 0 + 5 |
+| TANPURA_PA | 1 + 4 |
+| TANPURA_MA | 2 + 3 |
+| TANPURA_NI | 0 + 3 |
+| TANPURA_NI_KOMAL | 2 + 5 |
 
 ## Building
 
