@@ -7,6 +7,62 @@ version 0.3 - 2026-01-09
 Four resonating strings using Karplus-Strong synthesis
 */
 
+// Delay lookup table for 1V/oct pitch control
+// 341 entries per octave, inverse exponential curve
+// Base: C1 = 32.7Hz at 48kHz = 1468 samples, scaled by 64
+// Higher input = shorter delay = higher pitch
+// Formula: delay_vals[i] = 93952 / 2^(i/341)
+// Ratio across table = 2.0 (one octave)
+// Use with ExpDelay(): oct = in/341, suboct = in%341, return delay_vals[suboct] >> oct
+static const uint32_t delay_vals[341] = {
+    93952, 93761, 93571, 93381, 93191, 93002, 92813, 92625, 92437, 92249,
+    92062, 91875, 91688, 91502, 91316, 91131, 90946, 90761, 90577, 90393,
+    90209, 90026, 89843, 89661, 89479, 89297, 89116, 88935, 88754, 88574,
+    88394, 88214, 88035, 87857, 87678, 87500, 87322, 87145, 86968, 86792,
+    86615, 86439, 86264, 86089, 85914, 85739, 85565, 85392, 85218, 85045,
+    84872, 84700, 84528, 84356, 84185, 84014, 83844, 83673, 83503, 83334,
+    83165, 82996, 82827, 82659, 82491, 82324, 82157, 81990, 81823, 81657,
+    81491, 81326, 81161, 80996, 80831, 80667, 80503, 80340, 80177, 80014,
+    79852, 79689, 79528, 79366, 79205, 79044, 78884, 78723, 78564, 78404,
+    78245, 78086, 77927, 77769, 77611, 77454, 77296, 77139, 76983, 76826,
+    76670, 76515, 76359, 76204, 76049, 75895, 75741, 75587, 75434, 75280,
+    75128, 74975, 74823, 74671, 74519, 74368, 74217, 74066, 73916, 73766,
+    73616, 73466, 73317, 73168, 73020, 72872, 72724, 72576, 72428, 72281,
+    72135, 71988, 71842, 71696, 71551, 71405, 71260, 71116, 70971, 70827,
+    70683, 70540, 70396, 70253, 70111, 69968, 69826, 69685, 69543, 69402,
+    69261, 69120, 68980, 68840, 68700, 68561, 68421, 68282, 68144, 68005,
+    67867, 67729, 67592, 67455, 67318, 67181, 67045, 66908, 66773, 66637,
+    66502, 66367, 66232, 66097, 65963, 65829, 65696, 65562, 65429, 65296,
+    65164, 65031, 64899, 64767, 64636, 64505, 64374, 64243, 64112, 63982,
+    63852, 63723, 63593, 63464, 63335, 63207, 63078, 62950, 62822, 62695,
+    62568, 62440, 62314, 62187, 62061, 61935, 61809, 61684, 61558, 61433,
+    61309, 61184, 61060, 60936, 60812, 60689, 60565, 60442, 60320, 60197,
+    60075, 59953, 59831, 59710, 59588, 59467, 59347, 59226, 59106, 58986,
+    58866, 58747, 58627, 58508, 58389, 58271, 58153, 58034, 57917, 57799,
+    57682, 57564, 57448, 57331, 57215, 57098, 56982, 56867, 56751, 56636,
+    56521, 56406, 56292, 56177, 56063, 55949, 55836, 55722, 55609, 55496,
+    55384, 55271, 55159, 55047, 54935, 54824, 54712, 54601, 54490, 54380,
+    54269, 54159, 54049, 53939, 53830, 53720, 53611, 53503, 53394, 53285,
+    53177, 53069, 52962, 52854, 52747, 52640, 52533, 52426, 52320, 52213,
+    52107, 52001, 51896, 51790, 51685, 51580, 51476, 51371, 51267, 51163,
+    51059, 50955, 50852, 50748, 50645, 50542, 50440, 50337, 50235, 50133,
+    50031, 49930, 49828, 49727, 49626, 49525, 49425, 49325, 49224, 49124,
+    49025, 48925, 48826, 48727, 48628, 48529, 48430, 48332, 48234, 48136,
+    48038, 47941, 47843, 47746, 47649, 47552, 47456, 47360, 47263, 47167,
+    47072
+};
+
+// Exponential delay lookup for 1V/oct pitch control
+// in: 0-4095 (knob + CV combined)
+// Returns delay in samples (right-shifted by octave)
+int32_t ExpDelay(int32_t in) {
+    if (in < 0) in = 0;
+    if (in > 4091) in = 4091;
+    int32_t oct = in / 341;
+    int32_t suboct = in % 341;
+    return delay_vals[suboct] >> oct;
+}
+
 class ResonatingStrings : public ComputerCard
 {
 private:
@@ -200,19 +256,39 @@ protected:
         }
         lastSwitchDown = switchDown;
 
-        // FREQUENCY CONTROL (X Knob + CV1)
-        int32_t frequencyKnob = KnobVal(X);  // 0-4095
-        int16_t cv1 = CVIn1();
+        // FREQUENCY CONTROL - 1V/oct
+        // CV1: ±6V maps to -2048 to 2047
+        // For 1V/oct: 1V = 341 counts from CV, need 341 counts per octave
+        int32_t pitchCV;
 
-        int32_t combinedFreq = frequencyKnob + cv1;
-        if (combinedFreq > 4095) combinedFreq = 4095;
-        if (combinedFreq < 0) combinedFreq = 0;
+        if (Disconnected(Input::CV1)) {
+            // No CV connected: X knob controls C1-C7 range
+            // Map knob 0-4095 to pitchCV 2048-4095 (6 octaves)
+            pitchCV = 2048 + (KnobVal(X) / 2);
+        } else {
+            // CV connected: X knob is fine tune (±1 octave)
+            // 1 octave = 341 steps
+            int32_t fineTune = ((KnobVal(X) - 2048) * 341) / 2048;
 
-        // Map to delay length (50Hz to 800Hz range)
-        // At 48kHz: 50Hz = 960 samples, 800Hz = 60 samples
-        const int MIN_DELAY = 60;
-        const int MAX_DELAY = 960;
-        int32_t baseDelay = MAX_DELAY - ((combinedFreq * (MAX_DELAY - MIN_DELAY)) / 4095);
+            // CV input with 1V/oct scaling
+            // CVIn1 range: -2048 to +2047 for ±6V, so 1V = 341 counts
+            int32_t scaledCV = CVIn1();  // Already 341 counts per volt
+
+            // Base offset: 2048 matches knob-only center position (C1 at 0V)
+            pitchCV = 2048 + scaledCV + fineTune;
+        }
+
+        if (pitchCV > 4095) pitchCV = 4095;
+        if (pitchCV < 0) pitchCV = 0;
+
+        // Get delay from exponential lookup table (1V/oct)
+        int32_t baseDelay = ExpDelay(pitchCV);
+
+        // Clamp to usable range
+        const int MIN_DELAY = 15;
+        const int MAX_DELAY = 1468;  // C1 at 32.7Hz
+        if (baseDelay < MIN_DELAY) baseDelay = MIN_DELAY;
+        if (baseDelay > MAX_DELAY) baseDelay = MAX_DELAY;
 
         // Get frequency ratios based on current chord mode
         // Using integer numerator/denominator to avoid floating-point
@@ -293,8 +369,15 @@ protected:
         // Mix strings together - stereo mid/side
         // Out1 (mid): all strings summed - mono compatible
         // Out2 (side): strings 1&3 center, strings 2&4 wide/diffuse
-        int32_t resonatorOut1 = (out1 + out2 + out3 + out4) / 4;
-        int32_t resonatorOut2 = (out1 - out2 + out3 - out4) / 4;
+        int32_t resonatorOut1, resonatorOut2;
+        if (SwitchVal() == Switch::Up) {
+            // TUNING MODE: fundamental only
+            resonatorOut1 = out1;
+            resonatorOut2 = out1;
+        } else {
+            resonatorOut1 = (out1 + out2 + out3 + out4) / 4;
+            resonatorOut2 = (out1 - out2 + out3 - out4) / 4;
+        }
 
         // WET/DRY MIX (Main Knob)
         int32_t mixKnob = KnobVal(Main);  // 0-4095
@@ -330,6 +413,7 @@ protected:
 
 int main() {
     static ResonatingStrings resonator;
+    resonator.EnableNormalisationProbe();  // Enable jack detection
     resonator.Run();
     return 0;
 }
