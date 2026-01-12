@@ -97,9 +97,11 @@ private:
         SUS4 = 5,        // 1:1, 4:3, 3:2, 2:1 (suspended 4th)
         ADD9 = 6,        // 1:1, 5:4, 3:2, 9:4 (major add 9)
         TANPURA_PA = 7,  // 1:1, 3:2, 2:1, 4:1 (Sa, Pa, Sa', Sa'')
-        TANPURA_MA = 8   // 1:1, 4:3, 2:1, 4:1 (Sa, Ma, Sa', Sa'')
+        TANPURA_MA = 8,  // 1:1, 4:3, 2:1, 4:1 (Sa, Ma, Sa', Sa'')
+        TANPURA_NI = 9,  // 1:1, 15:8, 2:1, 4:1 (Sa, Ni, Sa', Sa'')
+        TANPURA_NI_KOMAL = 10  // 1:1, 9:5, 2:1, 4:1 (Sa, ni, Sa', Sa'')
     };
-    static const int NUM_MODES = 9;
+    static const int NUM_MODES = 11;
     ChordMode currentMode;
     bool lastSwitchDown;
 
@@ -216,6 +218,18 @@ private:
                 num3 = 2; den3 = 1;
                 num4 = 4; den4 = 1;
                 break;
+            case TANPURA_NI:
+                // Tanpura Ni: 1:1, 15:8, 2:1, 4:1 (Sa, Ni, Sa', Sa'')
+                num2 = 15; den2 = 8;
+                num3 = 2; den3 = 1;
+                num4 = 4; den4 = 1;
+                break;
+            case TANPURA_NI_KOMAL:
+                // Tanpura ni: 1:1, 9:5, 2:1, 4:1 (Sa, ni, Sa', Sa'')
+                num2 = 9; den2 = 5;
+                num3 = 2; den3 = 1;
+                num4 = 4; den4 = 1;
+                break;
         }
     }
 
@@ -223,7 +237,7 @@ public:
     ResonatingStrings() : writeIndex1(0), writeIndex2(0), writeIndex3(0), writeIndex4(0),
                           delayLength1(100), delayLength2(150), delayLength3(200), delayLength4(400),
                           filterState1(0), filterState2(0), filterState3(0), filterState4(0),
-                          currentMode(FIFTH), lastSwitchDown(true),
+                          currentMode(HARMONIC), lastSwitchDown(true),
                           pulseExciteEnvelope(0), noiseState(12345),
                           dcState1(0), dcState2(0), dcState3(0), dcState4(0) {
         // Initialize delay lines with silence
@@ -395,12 +409,13 @@ protected:
         // LED 0: HARMONIC, LED 1: FIFTH, LED 2: MAJOR7
         // LED 3: MINOR7, LED 4: DIM, LED 5: SUS4
         // ADD9 (mode 6): LEDs 0+5, TANPURA_PA (mode 7): LEDs 1+4, TANPURA_MA (mode 8): LEDs 2+3
-        LedOn(0, currentMode == HARMONIC || currentMode == ADD9);
+        // TANPURA_NI (mode 9): LEDs 0+3, TANPURA_NI_KOMAL (mode 10): LEDs 2+5
+        LedOn(0, currentMode == HARMONIC || currentMode == ADD9 || currentMode == TANPURA_NI);
         LedOn(1, currentMode == FIFTH || currentMode == TANPURA_PA);
-        LedOn(2, currentMode == MAJOR7 || currentMode == TANPURA_MA);
-        LedOn(3, currentMode == MINOR7 || currentMode == TANPURA_MA);
+        LedOn(2, currentMode == MAJOR7 || currentMode == TANPURA_MA || currentMode == TANPURA_NI_KOMAL);
+        LedOn(3, currentMode == MINOR7 || currentMode == TANPURA_MA || currentMode == TANPURA_NI);
         LedOn(4, currentMode == DIM || currentMode == TANPURA_PA);
-        LedOn(5, currentMode == SUS4 || currentMode == ADD9);
+        LedOn(5, currentMode == SUS4 || currentMode == ADD9 || currentMode == TANPURA_NI_KOMAL);
     }
 };
 
