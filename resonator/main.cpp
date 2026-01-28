@@ -96,19 +96,29 @@ private:
         DIM = 4,         // 1:1, 6:5, 36:25, 3:2 (diminished)
         SUS4 = 5,        // 1:1, 4:3, 3:2, 2:1 (suspended 4th)
         ADD9 = 6,        // 1:1, 5:4, 3:2, 9:4 (major add 9)
-        TANPURA_PA = 7,  // 1:1, 3:2, 2:1, 4:1 (Sa, Pa, Sa', Sa'')
-        TANPURA_MA = 8,  // 1:1, 4:3, 2:1, 4:1 (Sa, Ma, Sa', Sa'')
-        TANPURA_NI = 9,  // 1:1, 15:8, 2:1, 4:1 (Sa, Ni, Sa', Sa'')
-        TANPURA_NI_KOMAL = 10  // 1:1, 9:5, 2:1, 4:1 (Sa, ni, Sa', Sa'')
+        MAJOR10 = 7,     // 1:1, 5:4, 3:2, 5:2 (major chord with 10th)
+        TANPURA_PA = 8,  // 1:1, 3:2, 2:1, 4:1 (Sa, Pa, Sa', Sa'')
+        TANPURA_MA = 9,  // 1:1, 4:3, 2:1, 4:1 (Sa, Ma, Sa', Sa'')
+        TANPURA_NI = 10, // 1:1, 15:8, 2:1, 4:1 (Sa, Ni, Sa', Sa'')
+        TANPURA_NI_KOMAL = 11  // 1:1, 9:5, 2:1, 4:1 (Sa, ni, Sa', Sa'')
     };
-    static const int NUM_MODES = 11;
+    static const int NUM_MODES = 12;
     ChordMode currentMode;
+
+    // Curated progression for musical cycling
+    static constexpr ChordMode CHORD_PROGRESSION[] = {FIFTH, SUS4, MAJOR7, ADD9, MAJOR10};
+    static const int PROGRESSION_LENGTH = 5;
+    int progressionIndex;
+
     bool lastSwitchDown;
 
     int32_t pulseExciteEnvelope;
     uint32_t noiseState;
 
     int32_t dcState1, dcState2, dcState3, dcState4;
+
+    // Smoothed delay values for glide between chord modes (fixed-point, 8 bits fraction)
+    int32_t smoothDelay1, smoothDelay2, smoothDelay3, smoothDelay4;
 
     // One-pole lowpass filter for damping
     int32_t dampingFilter(int32_t input, int32_t& state, int32_t coefficient) {
@@ -206,6 +216,12 @@ private:
                 num3 = 3; den3 = 2;
                 num4 = 9; den4 = 4;
                 break;
+            case MAJOR10:
+                // Major 10th: 1:1, 5:4, 3:2, 5:2 (root, M3, P5, M10)
+                num2 = 5; den2 = 4;
+                num3 = 3; den3 = 2;
+                num4 = 5; den4 = 2;
+                break;
             case TANPURA_PA:
                 // Tanpura Pa: 1:1, 3:2, 2:1, 4:1 (Sa, Pa, Sa', Sa'')
                 num2 = 3; den2 = 2;
@@ -237,9 +253,10 @@ public:
     ResonatingStrings() : writeIndex1(0), writeIndex2(0), writeIndex3(0), writeIndex4(0),
                           delayLength1(100), delayLength2(150), delayLength3(200), delayLength4(400),
                           filterState1(0), filterState2(0), filterState3(0), filterState4(0),
-                          currentMode(HARMONIC), lastSwitchDown(true),
+                          currentMode(FIFTH), progressionIndex(0), lastSwitchDown(true),
                           pulseExciteEnvelope(0), noiseState(12345),
-                          dcState1(0), dcState2(0), dcState3(0), dcState4(0) {
+                          dcState1(0), dcState2(0), dcState3(0), dcState4(0),
+                          smoothDelay1(0), smoothDelay2(0), smoothDelay3(0), smoothDelay4(0) {
         // Initialize delay lines with silence
         for (int i = 0; i < MAX_DELAY_SIZE; i++) {
             delayLine1[i] = 0;
@@ -255,11 +272,12 @@ protected:
         int16_t audioIn2 = AudioIn2();
         int32_t audioIn = ((int32_t)audioIn1 + (int32_t)audioIn2 + 1) >> 1;
 
-        // Mode switching
+        // Mode switching (switch down or pulse in 2)
         Switch switchPos = SwitchVal();
         bool switchDown = (switchPos == Down);
-        if (switchDown && !lastSwitchDown) {
-            currentMode = (ChordMode)((currentMode + 1) % NUM_MODES);
+        if ((switchDown && !lastSwitchDown) || PulseIn2RisingEdge()) {
+            progressionIndex = (progressionIndex + 1) % PROGRESSION_LENGTH;
+            currentMode = CHORD_PROGRESSION[progressionIndex];
         }
         lastSwitchDown = switchDown;
 
@@ -299,23 +317,37 @@ protected:
         int num1 = 1, den1 = 1, num2 = 2, den2 = 1, num3 = 3, den3 = 1, num4 = 4, den4 = 1;
         getFrequencyRatios(num1, den1, num2, den2, num3, den3, num4, den4);
 
-        // Calculate delay lengths for each string using fixed-point math
+        // Calculate target delay lengths for each string using fixed-point math
         // delay = baseDelay * denominator / numerator
         // Use 8 extra bits of precision to extract fractional part for interpolation
-        int32_t delayFull1 = ((baseDelay * den1) << 8) / num1;
-        int32_t delayFull2 = ((baseDelay * den2) << 8) / num2;
-        int32_t delayFull3 = ((baseDelay * den3) << 8) / num3;
-        int32_t delayFull4 = ((baseDelay * den4) << 8) / num4;
+        int32_t targetDelay1 = ((baseDelay * den1) << 8) / num1;
+        int32_t targetDelay2 = ((baseDelay * den2) << 8) / num2;
+        int32_t targetDelay3 = ((baseDelay * den3) << 8) / num3;
+        int32_t targetDelay4 = ((baseDelay * den4) << 8) / num4;
 
-        delayLength1 = delayFull1 >> 8;  // Integer part
-        delayLength2 = delayFull2 >> 8;
-        delayLength3 = delayFull3 >> 8;
-        delayLength4 = delayFull4 >> 8;
+        // Smooth delay transitions to avoid harsh plucks on chord changes
+        // Initialize smoothDelay on first sample (when it's 0)
+        if (smoothDelay1 == 0) smoothDelay1 = targetDelay1;
+        if (smoothDelay2 == 0) smoothDelay2 = targetDelay2;
+        if (smoothDelay3 == 0) smoothDelay3 = targetDelay3;
+        if (smoothDelay4 == 0) smoothDelay4 = targetDelay4;
 
-        int32_t frac1 = delayFull1 & 0xFF;  // Fractional part (0-255)
-        int32_t frac2 = delayFull2 & 0xFF;
-        int32_t frac3 = delayFull3 & 0xFF;
-        int32_t frac4 = delayFull4 & 0xFF;
+        // One-pole lowpass: smoothDelay approaches target
+        const int32_t GLIDE_COEFF = 2;  // Lower = slower glide (~2 seconds)
+        smoothDelay1 += ((targetDelay1 - smoothDelay1) * GLIDE_COEFF) >> 8;
+        smoothDelay2 += ((targetDelay2 - smoothDelay2) * GLIDE_COEFF) >> 8;
+        smoothDelay3 += ((targetDelay3 - smoothDelay3) * GLIDE_COEFF) >> 8;
+        smoothDelay4 += ((targetDelay4 - smoothDelay4) * GLIDE_COEFF) >> 8;
+
+        delayLength1 = smoothDelay1 >> 8;  // Integer part
+        delayLength2 = smoothDelay2 >> 8;
+        delayLength3 = smoothDelay3 >> 8;
+        delayLength4 = smoothDelay4 >> 8;
+
+        int32_t frac1 = smoothDelay1 & 0xFF;  // Fractional part (0-255)
+        int32_t frac2 = smoothDelay2 & 0xFF;
+        int32_t frac3 = smoothDelay3 & 0xFF;
+        int32_t frac4 = smoothDelay4 & 0xFF;
 
         // Clamp to valid range
         if (delayLength1 < 10) delayLength1 = 10;
@@ -408,12 +440,13 @@ protected:
         // LED indicators - all 6 LEDs show chord mode
         // LED 0: HARMONIC, LED 1: FIFTH, LED 2: MAJOR7
         // LED 3: MINOR7, LED 4: DIM, LED 5: SUS4
-        // ADD9 (mode 6): LEDs 0+5, TANPURA_PA (mode 7): LEDs 1+4, TANPURA_MA (mode 8): LEDs 2+3
-        // TANPURA_NI (mode 9): LEDs 0+3, TANPURA_NI_KOMAL (mode 10): LEDs 2+5
+        // ADD9 (mode 6): LEDs 0+5, MAJOR10 (mode 7): LEDs 1+3
+        // TANPURA_PA (mode 8): LEDs 1+4, TANPURA_MA (mode 9): LEDs 2+3
+        // TANPURA_NI (mode 10): LEDs 0+3, TANPURA_NI_KOMAL (mode 11): LEDs 2+5
         LedOn(0, currentMode == HARMONIC || currentMode == ADD9 || currentMode == TANPURA_NI);
-        LedOn(1, currentMode == FIFTH || currentMode == TANPURA_PA);
+        LedOn(1, currentMode == FIFTH || currentMode == MAJOR10 || currentMode == TANPURA_PA);
         LedOn(2, currentMode == MAJOR7 || currentMode == TANPURA_MA || currentMode == TANPURA_NI_KOMAL);
-        LedOn(3, currentMode == MINOR7 || currentMode == TANPURA_MA || currentMode == TANPURA_NI);
+        LedOn(3, currentMode == MINOR7 || currentMode == MAJOR10 || currentMode == TANPURA_MA || currentMode == TANPURA_NI);
         LedOn(4, currentMode == DIM || currentMode == TANPURA_PA);
         LedOn(5, currentMode == SUS4 || currentMode == ADD9 || currentMode == TANPURA_NI_KOMAL);
     }
