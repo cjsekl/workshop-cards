@@ -1,4 +1,8 @@
 #include "ComputerCard.h"
+#include "pico/stdlib.h"
+#include "pico/multicore.h"
+#include <cstring>
+#include <cstdio>
 
 /**
 Resonator Workshop System Computer Card - by Johan Eklund
@@ -97,17 +101,29 @@ private:
         SUS4 = 5,        // 1:1, 4:3, 3:2, 2:1 (suspended 4th)
         ADD9 = 6,        // 1:1, 5:4, 3:2, 9:4 (major add 9)
         MAJOR10 = 7,     // 1:1, 5:4, 3:2, 5:2 (major chord with 10th)
-        TANPURA_PA = 8,  // 1:1, 3:2, 2:1, 4:1 (Sa, Pa, Sa', Sa'')
-        TANPURA_MA = 9,  // 1:1, 4:3, 2:1, 4:1 (Sa, Ma, Sa', Sa'')
-        TANPURA_NI = 10, // 1:1, 15:8, 2:1, 4:1 (Sa, Ni, Sa', Sa'')
-        TANPURA_NI_KOMAL = 11  // 1:1, 9:5, 2:1, 4:1 (Sa, ni, Sa', Sa'')
+        SUS2 = 8,        // 1:1, 9:8, 3:2, 2:1 (suspended 2nd)
+        MAJOR = 9,       // 1:1, 5:4, 3:2, 2:1 (major triad)
+        MINOR = 10,      // 1:1, 6:5, 3:2, 2:1 (minor triad)
+        MAJOR6 = 11,     // 1:1, 5:4, 3:2, 5:3 (major 6th)
+        DOM7 = 12,       // 1:1, 5:4, 3:2, 9:5 (dominant 7th)
+        MIN9 = 13,       // 1:1, 6:5, 3:2, 9:4 (minor add 9)
+        TANPURA_PA = 14, // 1:1, 3:2, 2:1, 4:1 (Sa, Pa, Sa', Sa'')
+        TANPURA_MA = 15, // 1:1, 4:3, 2:1, 4:1 (Sa, Ma, Sa', Sa'')
+        TANPURA_NI = 16, // 1:1, 15:8, 2:1, 4:1 (Sa, Ni, Sa', Sa'')
+        TANPURA_NI_KOMAL = 17  // 1:1, 9:5, 2:1, 4:1 (Sa, ni, Sa', Sa'')
     };
-    static const int NUM_MODES = 12;
+    static const int NUM_MODES = 18;
     ChordMode currentMode;
 
-    // Curated progression for musical cycling
-    static constexpr ChordMode CHORD_PROGRESSION[] = {FIFTH, SUS4, MAJOR7, ADD9, MAJOR10};
-    static const int PROGRESSION_LENGTH = 5;
+    // Double-buffered progression for lock-free Core0/Core1 sharing
+    static const int MAX_PROGRESSION_LENGTH = 18;
+    struct ProgressionBuffer {
+        ChordMode chords[MAX_PROGRESSION_LENGTH];
+        int length;
+    };
+    volatile int activeBuffer;
+    ProgressionBuffer progressionBuffers[2];
+    volatile bool progressionChanged;
     int progressionIndex;
 
     bool lastSwitchDown;
@@ -222,6 +238,42 @@ private:
                 num3 = 3; den3 = 2;
                 num4 = 5; den4 = 2;
                 break;
+            case SUS2:
+                // Suspended 2nd: 1:1, 9:8, 3:2, 2:1 (root, M2, P5, octave)
+                num2 = 9; den2 = 8;
+                num3 = 3; den3 = 2;
+                num4 = 2; den4 = 1;
+                break;
+            case MAJOR:
+                // Major triad: 1:1, 5:4, 3:2, 2:1 (root, M3, P5, octave)
+                num2 = 5; den2 = 4;
+                num3 = 3; den3 = 2;
+                num4 = 2; den4 = 1;
+                break;
+            case MINOR:
+                // Minor triad: 1:1, 6:5, 3:2, 2:1 (root, m3, P5, octave)
+                num2 = 6; den2 = 5;
+                num3 = 3; den3 = 2;
+                num4 = 2; den4 = 1;
+                break;
+            case MAJOR6:
+                // Major 6th: 1:1, 5:4, 3:2, 5:3 (root, M3, P5, M6)
+                num2 = 5; den2 = 4;
+                num3 = 3; den3 = 2;
+                num4 = 5; den4 = 3;
+                break;
+            case DOM7:
+                // Dominant 7th: 1:1, 5:4, 3:2, 9:5 (root, M3, P5, m7)
+                num2 = 5; den2 = 4;
+                num3 = 3; den3 = 2;
+                num4 = 9; den4 = 5;
+                break;
+            case MIN9:
+                // Minor add 9: 1:1, 6:5, 3:2, 9:4 (root, m3, P5, M9)
+                num2 = 6; den2 = 5;
+                num3 = 3; den3 = 2;
+                num4 = 9; den4 = 4;
+                break;
             case TANPURA_PA:
                 // Tanpura Pa: 1:1, 3:2, 2:1, 4:1 (Sa, Pa, Sa', Sa'')
                 num2 = 3; den2 = 2;
@@ -253,10 +305,24 @@ public:
     ResonatingStrings() : writeIndex1(0), writeIndex2(0), writeIndex3(0), writeIndex4(0),
                           delayLength1(100), delayLength2(150), delayLength3(200), delayLength4(400),
                           filterState1(0), filterState2(0), filterState3(0), filterState4(0),
-                          currentMode(FIFTH), progressionIndex(0), lastSwitchDown(true),
+                          currentMode(HARMONIC), activeBuffer(0), progressionChanged(false),
+                          progressionIndex(0), lastSwitchDown(true),
                           pulseExciteEnvelope(0), noiseState(12345),
                           dcState1(0), dcState2(0), dcState3(0), dcState4(0),
                           smoothDelay1(0), smoothDelay2(0), smoothDelay3(0), smoothDelay4(0) {
+        // Default progression: all chords (card works standalone without browser UI)
+        const ChordMode allChords[] = {
+            HARMONIC, FIFTH, MAJOR7, MINOR7, DIM, SUS4, ADD9, MAJOR10,
+            SUS2, MAJOR, MINOR, MAJOR6, DOM7, MIN9,
+            TANPURA_PA, TANPURA_MA, TANPURA_NI, TANPURA_NI_KOMAL
+        };
+        for (int i = 0; i < NUM_MODES; i++) {
+            progressionBuffers[0].chords[i] = allChords[i];
+            progressionBuffers[1].chords[i] = allChords[i];
+        }
+        progressionBuffers[0].length = NUM_MODES;
+        progressionBuffers[1].length = NUM_MODES;
+
         // Initialize delay lines with silence
         for (int i = 0; i < MAX_DELAY_SIZE; i++) {
             delayLine1[i] = 0;
@@ -266,18 +332,88 @@ public:
         }
     }
 
+    // Serial command handler (called from Core 1)
+    void handleSerialCommand(const char* cmd) {
+        if (strncmp(cmd, "SET ", 4) == 0) {
+            handleSet(cmd + 4);
+        } else if (strcmp(cmd, "GET") == 0) {
+            handleGet();
+        } else {
+            printf("ERR unknown_command\n");
+        }
+    }
+
+private:
+    void handleSet(const char* args) {
+        ChordMode newChords[MAX_PROGRESSION_LENGTH];
+        int count = 0;
+        const char* p = args;
+
+        while (*p && count < MAX_PROGRESSION_LENGTH) {
+            int val = 0;
+            bool hasDigit = false;
+            while (*p >= '0' && *p <= '9') {
+                val = val * 10 + (*p - '0');
+                p++;
+                hasDigit = true;
+            }
+            if (!hasDigit) break;
+            if (val < 0 || val >= NUM_MODES) {
+                printf("ERR invalid_id\n");
+                return;
+            }
+            newChords[count++] = (ChordMode)val;
+            if (*p == ',') p++;
+        }
+
+        if (count == 0) {
+            printf("ERR empty_progression\n");
+            return;
+        }
+
+        // Write to inactive buffer, then swap
+        int writeIdx = 1 - activeBuffer;
+        for (int i = 0; i < count; i++) {
+            progressionBuffers[writeIdx].chords[i] = newChords[i];
+        }
+        progressionBuffers[writeIdx].length = count;
+        __dmb();  // ARM data memory barrier
+        activeBuffer = writeIdx;
+        progressionChanged = true;
+
+        handleGet();
+    }
+
+    void handleGet() {
+        int bufIdx = activeBuffer;
+        printf("PROG ");
+        for (int i = 0; i < progressionBuffers[bufIdx].length; i++) {
+            if (i > 0) printf(",");
+            printf("%d", (int)progressionBuffers[bufIdx].chords[i]);
+        }
+        printf("\n");
+    }
+
 protected:
     void ProcessSample() override {
         int16_t audioIn1 = AudioIn1();
         int16_t audioIn2 = AudioIn2();
         int32_t audioIn = ((int32_t)audioIn1 + (int32_t)audioIn2 + 1) >> 1;
 
+        // Check for serial progression update from Core 1
+        if (progressionChanged) {
+            progressionIndex = 0;
+            currentMode = progressionBuffers[activeBuffer].chords[0];
+            progressionChanged = false;
+        }
+
         // Mode switching (switch down or pulse in 2)
         Switch switchPos = SwitchVal();
         bool switchDown = (switchPos == Down);
         if ((switchDown && !lastSwitchDown) || PulseIn2RisingEdge()) {
-            progressionIndex = (progressionIndex + 1) % PROGRESSION_LENGTH;
-            currentMode = CHORD_PROGRESSION[progressionIndex];
+            int bufIdx = activeBuffer;
+            progressionIndex = (progressionIndex + 1) % progressionBuffers[bufIdx].length;
+            currentMode = progressionBuffers[bufIdx].chords[progressionIndex];
         }
         lastSwitchDown = switchDown;
 
@@ -438,23 +574,51 @@ protected:
         AudioOut2((int16_t)mixedOutput2);
 
         // LED indicators - all 6 LEDs show chord mode
-        // LED 0: HARMONIC, LED 1: FIFTH, LED 2: MAJOR7
-        // LED 3: MINOR7, LED 4: DIM, LED 5: SUS4
-        // ADD9 (mode 6): LEDs 0+5, MAJOR10 (mode 7): LEDs 1+3
-        // TANPURA_PA (mode 8): LEDs 1+4, TANPURA_MA (mode 9): LEDs 2+3
-        // TANPURA_NI (mode 10): LEDs 0+3, TANPURA_NI_KOMAL (mode 11): LEDs 2+5
-        LedOn(0, currentMode == HARMONIC || currentMode == ADD9 || currentMode == TANPURA_NI);
-        LedOn(1, currentMode == FIFTH || currentMode == MAJOR10 || currentMode == TANPURA_PA);
-        LedOn(2, currentMode == MAJOR7 || currentMode == TANPURA_MA || currentMode == TANPURA_NI_KOMAL);
-        LedOn(3, currentMode == MINOR7 || currentMode == MAJOR10 || currentMode == TANPURA_MA || currentMode == TANPURA_NI);
-        LedOn(4, currentMode == DIM || currentMode == TANPURA_PA);
-        LedOn(5, currentMode == SUS4 || currentMode == ADD9 || currentMode == TANPURA_NI_KOMAL);
+        // Single LED: HARMONIC(0), FIFTH(1), MAJOR7(2), MINOR7(3), DIM(4), SUS4(5)
+        // Pairs for extended chords:
+        // ADD9(6): 0+5, MAJOR10(7): 1+3, SUS2(8): 0+2, MAJOR(9): 1+2
+        // MINOR(10): 3+4, MAJOR6(11): 2+4, DOM7(12): 0+4, MIN9(13): 3+5
+        // TANPURA_PA(14): 1+4, TANPURA_MA(15): 2+3, TANPURA_NI(16): 0+3, TANPURA_NI_KOMAL(17): 2+5
+        LedOn(0, currentMode == HARMONIC || currentMode == ADD9 || currentMode == SUS2 || currentMode == DOM7 || currentMode == TANPURA_NI);
+        LedOn(1, currentMode == FIFTH || currentMode == MAJOR10 || currentMode == MAJOR || currentMode == TANPURA_PA);
+        LedOn(2, currentMode == MAJOR7 || currentMode == SUS2 || currentMode == MAJOR || currentMode == MAJOR6 || currentMode == TANPURA_MA || currentMode == TANPURA_NI_KOMAL);
+        LedOn(3, currentMode == MINOR7 || currentMode == MAJOR10 || currentMode == MINOR || currentMode == MIN9 || currentMode == TANPURA_MA || currentMode == TANPURA_NI);
+        LedOn(4, currentMode == DIM || currentMode == MINOR || currentMode == MAJOR6 || currentMode == DOM7 || currentMode == TANPURA_PA);
+        LedOn(5, currentMode == SUS4 || currentMode == ADD9 || currentMode == MIN9 || currentMode == TANPURA_NI_KOMAL);
     }
 };
 
+// Global pointer for Core 1 to access shared state
+static ResonatingStrings* g_resonator = nullptr;
+
+void core1_serial_handler() {
+    sleep_ms(500);  // Wait for USB to settle
+
+    char lineBuf[128];
+    int linePos = 0;
+
+    while (true) {
+        int c = getchar_timeout_us(10000);  // 10ms timeout
+        if (c == PICO_ERROR_TIMEOUT) continue;
+        if (c == '\n' || c == '\r') {
+            if (linePos > 0) {
+                lineBuf[linePos] = '\0';
+                g_resonator->handleSerialCommand(lineBuf);
+                linePos = 0;
+            }
+        } else if (linePos < 127) {
+            lineBuf[linePos++] = (char)c;
+        }
+    }
+}
+
 int main() {
+    stdio_init_all();  // Initialize USB CDC
+
     static ResonatingStrings resonator;
+    g_resonator = &resonator;
     resonator.EnableNormalisationProbe();
+    multicore_launch_core1(core1_serial_handler);
     resonator.Run();
     return 0;
 }
