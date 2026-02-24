@@ -53,7 +53,9 @@ enum WSChannel : uint8_t {
     WS_KNOB_Y     = 6,
     WS_SWITCH     = 7,
     WS_PULSE_IN_1 = 8,
-    WS_NUM_CHANNELS = 9,
+    WS_PULSE_IN_2 = 9,
+    WS_CARD_ID    = 10,
+    WS_NUM_CHANNELS = 11,
 };
 
 // CC number assignments (from Simple MIDI documentation)
@@ -61,9 +63,10 @@ enum WSChannel : uint8_t {
 //   CV In 1    -> CC 40    CV In 2    -> CC 41
 //   Main Knob  -> CC 34    Knob X     -> CC 35
 //   Knob Y     -> CC 36    Switch     -> CC 37
-//   Pulse In 1 -> CC 42
+//   Pulse In 1 -> CC 42    Pulse In 2 -> CC 43
+//   Card ID    -> CC 44
 static constexpr uint8_t WS_CC_MAP[WS_NUM_CHANNELS] = {
-    39, 38, 40, 41, 34, 35, 36, 37, 42
+    39, 38, 40, 41, 34, 35, 36, 37, 42, 43, 44
 };
 
 struct MidiCCMessage {

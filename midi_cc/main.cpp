@@ -14,15 +14,17 @@
    Core 1: TinyUSB MIDI device — converts values to MIDI CC, sends over USB
 
    Output mapping:
-     Main Knob -> CV Out 1 + MIDI CC 34
+     Main Knob -> Audio Out 1 + MIDI CC 34
      Knob X    -> CV Out 2 + MIDI CC 35
-     Knob Y    -> Audio Out 1 + MIDI CC 36  (AC-coupled, drifts to 0V when stationary)
-     Switch    -> MIDI CC 37                 (3 positions: 0/63/127)
+     Knob Y    -> CV Out 1 + MIDI CC 36
+     Switch    -> MIDI CC 37                 (momentary down toggles pass mode)
      Audio In 1 -> MIDI CC 39  (envelope follower, ~85ms release)
      Audio In 2 -> MIDI CC 38  (zero-crossing rate, 20ms window)
      CV In 1    -> MIDI CC 40
      CV In 2    -> MIDI CC 41
-     Pulse In 1 -> MIDI CC 42  (rising edge → full scale, else 0)
+     Pulse In 1 -> MIDI CC 42  (rising edge → full scale, hold 10ms)
+     Pulse In 2 -> MIDI CC 43  (gate: high = 4095, low = 0)
+     Card ID    -> MIDI CC 44  (unique per card, sent once at startup)
 */
 
 class MIDICCCard : public ComputerCard
@@ -31,6 +33,9 @@ class MIDICCCard : public ComputerCard
 	volatile uint16_t audioIn1Envelope = 0;
 	volatile uint16_t audioIn2ZCR = 0;
 	volatile uint16_t pulseIn1Val = 0;
+	volatile uint16_t pulseIn2Val = 0;
+	int32_t pulseHoldCount = 0;
+	int32_t pulseHoldCount2 = 0;
 
 	// Envelope follower state (Core 0 only)
 	int32_t envState = 0;
@@ -41,7 +46,9 @@ class MIDICCCard : public ComputerCard
 	int32_t zcrWindowCount = 0;
 
 public:
-	MIDICCCard()
+	MIDICCCard() {}
+
+	void LaunchUSBCore()
 	{
 		multicore_launch_core1(core1);
 	}
@@ -55,6 +62,10 @@ public:
 	{
 		WorkshopMidiCC midiCC;
 		uint8_t buffer[64];
+
+		// Hash 64-bit unique card ID down to 12 bits (0-4095)
+		uint64_t uid = UniqueCardID();
+		uint16_t cardIdVal = (uint16_t)(((uid >> 32) ^ uid) & 0xFFF);
 
 		tusb_init();
 
@@ -70,9 +81,9 @@ public:
 				tud_midi_stream_read(buffer, sizeof(buffer));
 			}
 
-			// Send MIDI CC at ~1kHz rate
+			// Send MIDI CC at ~100Hz rate
 			uint32_t now = time_us_32();
-			if (now - lastSendTime >= 1000)
+			if (now - lastSendTime >= 10000)
 			{
 				lastSendTime = now;
 
@@ -87,6 +98,8 @@ public:
 					(uint16_t)KnobVal(Knob::Y),
 					(uint16_t)(SwitchVal() * 2047),
 					pulseIn1Val,
+					pulseIn2Val,
+					cardIdVal,
 				};
 
 				int n = midiCC.update(values);
@@ -102,11 +115,24 @@ public:
 
 	virtual void ProcessSample()
 	{
-		// Pulse In 1: rising edge → full scale, otherwise 0
+		// Pulse In 1: rising edge → full scale, hold ~10ms for Core 1 + browser
 		if (PulseIn1RisingEdge()) {
 			pulseIn1Val = 4095;
+			pulseHoldCount = 480;  // 10ms at 48kHz
+		} else if (pulseHoldCount > 0) {
+			pulseHoldCount--;
 		} else if (pulseIn1Val > 0) {
 			pulseIn1Val = 0;
+		}
+
+		// Pulse In 2: rising edge → full scale, hold ~10ms
+		if (PulseIn2RisingEdge()) {
+			pulseIn2Val = 4095;
+			pulseHoldCount2 = 480;
+		} else if (pulseHoldCount2 > 0) {
+			pulseHoldCount2--;
+		} else if (pulseIn2Val > 0) {
+			pulseIn2Val = 0;
 		}
 
 		// Envelope follower on Audio In 1 (fixed-point <<8 for release precision)
@@ -139,14 +165,14 @@ public:
 		int32_t yKnob = KnobVal(Knob::Y);
 
 		// Output knob values on CV/audio outputs (map 0-4095 to -2048..2047)
-		CVOut1(mainKnob - 2048);
+		AudioOut1(mainKnob - 2048);
 		CVOut2(xKnob - 2048);
-		AudioOut1(yKnob - 2048);
+		CVOut1(yKnob - 2048);
 
 		// LED feedback: knob brightness on LEDs 0, 2, 4
-		LedBrightness(0, mainKnob >> 1);  // 0-2047 range
+		LedBrightness(0, yKnob >> 1);    // 0-2047 range
 		LedBrightness(2, xKnob >> 1);
-		LedBrightness(4, yKnob >> 1);
+		LedBrightness(4, mainKnob >> 1);
 
 		// Heartbeat on LED 5
 		static int32_t frame = 0;
@@ -158,5 +184,7 @@ public:
 int main()
 {
 	MIDICCCard card;
+	card.EnableNormalisationProbe();
+	card.LaunchUSBCore();
 	card.Run();
 }

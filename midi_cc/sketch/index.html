@@ -26,15 +26,17 @@ const cc = new Array(128).fill(0);
 let midiConnected = false;
 
 // Workshop System CC mapping:
-//   CC 34 = Main Knob  → cos fold frequency (vertical crease density)
+//   CC 34 = Main Knob  → animation speed
 //   CC 35 = Knob X     → sin fold frequency (horizontal crease density)
-//   CC 36 = Knob Y     → animation speed
-//   CC 37 = Switch      → 0=pass1 only / 63=both (moiré) / 127=pass2 only
+//   CC 36 = Knob Y     → cos fold frequency (vertical crease density)
+//   CC 37 = Switch      → momentary down toggles: both → pass1 → pass2 → both...
 //   CC 38 = Audio In 2  → stroke weight (high pitch = thin, low pitch = thick)
 //   CC 39 = Audio In 1  → fold frequency boost (envelope → more creases + slow release)
 //   CC 40 = CV In 1    → noise roughness (noiseDetail falloff)
 //   CC 41 = CV In 2    → pass coupling / moiré intensity
 //   CC 42 = Pulse In 1 → noise time jump (each pulse evolves the pattern)
+//   CC 43 = Pulse In 2 → freeze (while high, animation pauses)
+//   CC 44 = Card ID     → noise seed (unique per physical card)
 
 function initMIDI() {
   if (!navigator.requestMIDIAccess) {
@@ -63,15 +65,20 @@ function initMIDI() {
 
 let noiseTime = 0;
 let lastCC42 = 0;
+let lastCC43 = 0;
+let frozen = false;
 let lastCC39 = 0;
 let smoothFold = 0;
+let seedApplied = false;
+let passMode = 0;  // 0=both, 1=pass1 only, 2=pass2 only
+let lastCC37 = 0;
 const LINE_SPACING = 3;
 const X_STEP = 2;
 const MARGIN = 50;
 
 function setup() {
   createCanvas(Math.floor(windowWidth * 0.6), Math.floor(windowHeight * 0.6));
-  noiseSeed(42);
+  noiseSeed(42);  // default seed, replaced by card ID (CC 44) once MIDI connects
   initMIDI();
 }
 
@@ -80,11 +87,17 @@ function windowResized() {
 }
 
 function draw() {
-  let fold1 = midiConnected ? map(cc[34], 0, 127, 2, 30) : 10;
+  // Apply unique noise seed from card ID (CC 44), once received
+  if (midiConnected && !seedApplied && cc[44] > 0) {
+    noiseSeed(cc[44]);
+    seedApplied = true;
+  }
+
+  let fold1 = midiConnected ? map(cc[36], 0, 127, 2, 30) : 10;
   let fold2 = midiConnected ? map(cc[35], 0, 127, 2, 30) : 15;
   let roughness = midiConnected ? map(cc[40], 0, 127, 0.1, 0.7) : 0.1;
   let coupling  = midiConnected ? map(cc[41], 0, 127, 0.0, 1.0) : 0.0;
-  let speed = midiConnected ? map(cc[36], 0, 127, 0.0, 0.01) : 0.002;
+  let speed = midiConnected ? map(cc[34], 0, 127, 0.0, 0.01) : 0.002;
   // Envelope accumulates fold boost — each hit adds, slow decay between hits
   if (midiConnected) {
     let rise = cc[39] - lastCC39;
@@ -104,13 +117,24 @@ function draw() {
     lastCC42 = cc[42];
   }
   let strokeW = midiConnected ? map(cc[38], 0, 127, 0.7, 0.15) : 0.2;
-  let switchVal = cc[37];
+  // Switch down (CC 37 drops to 0) toggles pass mode: both → pass1 → pass2 → both...
+  if (midiConnected) {
+    let drop = lastCC37 - cc[37];
+    if (drop > 30) passMode = (passMode + 1) % 3;
+    lastCC37 = cc[37];
+  }
+  let showPass1 = !midiConnected || passMode < 2;   // both (0) or pass1 (1)
+  let showPass2 = !midiConnected || passMode !== 1;  // both (0) or pass2 (2)
 
-  let showPass1 = !midiConnected || switchVal < 127;
-  let showPass2 = !midiConnected || switchVal > 0;
+  // Pulse In 2 toggles freeze on each pulse
+  if (midiConnected) {
+    let rise = cc[43] - lastCC43;
+    if (rise > 0) frozen = !frozen;
+    lastCC43 = cc[43];
+  }
 
   noiseDetail(6, roughness);
-  noiseTime += speed;
+  if (!frozen) noiseTime += speed;
 
   let w = width - MARGIN * 2;
   let h = height - MARGIN * 2;
@@ -163,6 +187,7 @@ function draw() {
     }
     ctx.stroke();
   }
+
 }
   </script>
 </body>
