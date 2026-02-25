@@ -70,11 +70,26 @@ let frozen = false;
 let lastCC39 = 0;
 let smoothFold = 0;
 let seedApplied = false;
+let smoothSpeed = 0.002;
+let smoothRoughness = 0.1;
+let smoothCoupling = 0.0;
+let smoothFold1 = 10;
+let smoothFold2 = 15;
+let smoothStroke = 0.2;
+
+function snap(current, target, k) {
+  let v = current + (target - current) * k;
+  return Math.abs(v - target) < 0.0001 ? target : v;
+}
 let passMode = 0;  // 0=both, 1=pass1 only, 2=pass2 only
+
+let appliedRoughness = -1;
 let lastCC37 = 0;
 const LINE_SPACING = 3;
 const X_STEP = 2;
 const MARGIN = 50;
+let maxRows = 0, maxCols = 0;
+let xDisp, yDisp;
 
 function setup() {
   createCanvas(Math.floor(windowWidth * 0.6), Math.floor(windowHeight * 0.6));
@@ -93,18 +108,26 @@ function draw() {
     seedApplied = true;
   }
 
-  let fold1 = midiConnected ? map(cc[36], 0, 127, 2, 30) : 10;
-  let fold2 = midiConnected ? map(cc[35], 0, 127, 2, 30) : 15;
-  let roughness = midiConnected ? map(cc[40], 0, 127, 0.1, 0.7) : 0.1;
-  let coupling  = midiConnected ? map(cc[41], 0, 127, 0.0, 1.0) : 0.0;
-  let speed = midiConnected ? map(cc[34], 0, 127, 0.0, 0.01) : 0.002;
+  let k = 0.05;
+  smoothFold1 = snap(smoothFold1, midiConnected ? map(cc[36], 0, 127, 2, 30) : 10, k);
+  smoothFold2 = snap(smoothFold2, midiConnected ? map(cc[35], 0, 127, 2, 30) : 15, k);
+  smoothRoughness = midiConnected ? map(cc[40], 0, 127, 0.1, 0.7) : 0.1;
+  smoothCoupling = snap(smoothCoupling, midiConnected ? map(cc[41], 0, 127, 0.0, 1.0) : 0.0, k);
+  smoothSpeed = snap(smoothSpeed, midiConnected ? (cc[34] < 2 ? 0 : map(cc[34], 2, 127, 0.0, 0.01)) : 0.002, k);
+  smoothStroke = snap(smoothStroke, midiConnected ? map(cc[38], 0, 127, 0.7, 0.15) : 0.2, k);
+  let fold1 = smoothFold1;
+  let fold2 = smoothFold2;
+  let roughness = smoothRoughness;
+  let coupling = smoothCoupling;
+  let speed = smoothSpeed;
   // Envelope accumulates fold boost — each hit adds, slow decay between hits
   if (midiConnected) {
     let rise = cc[39] - lastCC39;
     if (rise > 0) smoothFold += rise * 0.15;
     lastCC39 = cc[39];
   }
-  smoothFold *= 0.99;  // ~3s half-life at 60fps
+  smoothFold *= 0.99;
+  if (smoothFold < 0.01) smoothFold = 0;
   fold1 += smoothFold;
   fold2 += smoothFold;
   let scl = 0.003;
@@ -116,7 +139,7 @@ function draw() {
     if (rise > 0) noiseTime += rise * 0.02;
     lastCC42 = cc[42];
   }
-  let strokeW = midiConnected ? map(cc[38], 0, 127, 0.7, 0.15) : 0.2;
+  let strokeW = smoothStroke;
   // Switch down (CC 37 drops to 0) toggles pass mode: both → pass1 → pass2 → both...
   if (midiConnected) {
     let drop = lastCC37 - cc[37];
@@ -145,17 +168,25 @@ function draw() {
   stroke(0);
   strokeWeight(strokeW);
 
+  // Reallocate displacement grids only when canvas resizes
+  if (rows > maxRows || cols > maxCols) {
+    maxRows = rows; maxCols = cols;
+    xDisp = new Array(maxRows);
+    yDisp = new Array(maxRows);
+    for (let j = 0; j < maxRows; j++) {
+      xDisp[j] = new Float32Array(maxCols);
+      yDisp[j] = new Float32Array(maxCols);
+    }
+  }
+
   // Precompute displacement grids (shared by both passes)
-  let xDisp = new Array(rows);
-  let yDisp = new Array(rows);
   for (let jr = 0; jr < rows; jr++) {
-    xDisp[jr] = new Float32Array(cols);
-    yDisp[jr] = new Float32Array(cols);
     let jy = jr * LINE_SPACING;
+    let xd = xDisp[jr], yd = yDisp[jr];
     for (let ic = 0; ic < cols; ic++) {
       let n = noise(ic * X_STEP * scl, jy * scl, noiseTime) * 2 - 1;
-      xDisp[jr][ic] = n * amp * sin(10 + n * fold2);
-      yDisp[jr][ic] = n * amp * cos(10 + n * fold1);
+      xd[ic] = n * amp * sin(10 + n * fold2);
+      yd[ic] = n * amp * cos(10 + n * fold1);
     }
   }
 

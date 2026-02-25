@@ -15,8 +15,8 @@
 
    Output mapping:
      Main Knob -> Audio Out 1 + MIDI CC 34
-     Knob X    -> CV Out 2 + MIDI CC 35
-     Knob Y    -> CV Out 1 + MIDI CC 36
+     Knob X    -> CV Out 1 + MIDI CC 35
+     Knob Y    -> CV Out 2 + MIDI CC 36
      Switch    -> MIDI CC 37                 (momentary down toggles pass mode)
      Audio In 1 -> MIDI CC 39  (envelope follower, ~85ms release)
      Audio In 2 -> MIDI CC 38  (zero-crossing rate, 20ms window)
@@ -166,8 +166,8 @@ public:
 
 		// Output knob values on CV/audio outputs (map 0-4095 to -2048..2047)
 		AudioOut1(mainKnob - 2048);
-		CVOut2(xKnob - 2048);
-		CVOut1(yKnob - 2048);
+		CVOut1(xKnob - 2048);
+		CVOut2(yKnob - 2048);
 
 		// LED feedback: knob brightness on LEDs 0, 2, 4
 		LedBrightness(0, yKnob >> 1);    // 0-2047 range
