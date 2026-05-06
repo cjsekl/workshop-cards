@@ -24,7 +24,7 @@
      CV In 2    -> MIDI CC 41
      Pulse In 1 -> MIDI CC 42  (rising edge → full scale, hold 10ms)
      Pulse In 2 -> MIDI CC 43  (gate: high = 4095, low = 0)
-     Card ID    -> MIDI CC 44  (unique per card, sent once at startup)
+     Card ID    -> MIDI CC 44-48  (5 x 7-bit = 35 bits, sent once at startup)
 */
 
 class MIDICCCard : public ComputerCard
@@ -36,6 +36,13 @@ class MIDICCCard : public ComputerCard
 	volatile uint16_t pulseIn2Val = 0;
 	int32_t pulseHoldCount = 0;
 	int32_t pulseHoldCount2 = 0;
+
+	// CV input averaging (written by Core 0, read by Core 1)
+	volatile int32_t cvIn1Avg = 0;
+	volatile int32_t cvIn2Avg = 0;
+	int32_t cvIn1Accum = 0;
+	int32_t cvIn2Accum = 0;
+	int32_t cvAccumCount = 0;
 
 	// Envelope follower state (Core 0 only)
 	int32_t envState = 0;
@@ -63,17 +70,31 @@ public:
 		WorkshopMidiCC midiCC;
 		uint8_t buffer[64];
 
-		// Hash 64-bit unique card ID down to 12 bits (0-4095)
+		// Split 64-bit unique card ID into 5 x 7-bit MIDI CC values (35 bits)
 		uint64_t uid = UniqueCardID();
-		uint16_t cardIdVal = (uint16_t)(((uid >> 32) ^ uid) & 0xFFF);
+		uint32_t cardId35 = (uint32_t)(((uid >> 32) ^ uid) & 0x7FFFFFFFF);
+		uint8_t cardIdCC[5];
+		for (int i = 0; i < 5; i++) {
+			cardIdCC[i] = (cardId35 >> (i * 7)) & 0x7F;
+		}
 
 		tusb_init();
 
+		// Send card ID as CC 44-48 once USB is ready
+		bool cardIdSent = false;
 		uint32_t lastSendTime = 0;
 
 		while (1)
 		{
 			tud_task();
+
+			if (!cardIdSent && tud_midi_available() >= 0) {
+				for (int i = 0; i < 5; i++) {
+					uint8_t bytes[3] = {0xB0, (uint8_t)(44 + i), cardIdCC[i]};
+					tud_midi_stream_write(0, bytes, 3);
+				}
+				cardIdSent = true;
+			}
 
 			// Drain any incoming MIDI (we don't use it, but must read to keep USB happy)
 			while (tud_midi_available())
@@ -91,15 +112,14 @@ public:
 				uint16_t values[WS_NUM_CHANNELS] = {
 					audioIn1Envelope,
 					audioIn2ZCR,
-					(uint16_t)(CVIn1() + 2048),
-					(uint16_t)(CVIn2() + 2048),
+					(uint16_t)(cvIn1Avg + 2048),
+					(uint16_t)(cvIn2Avg + 2048),
 					(uint16_t)KnobVal(Knob::Main),
 					(uint16_t)KnobVal(Knob::X),
 					(uint16_t)KnobVal(Knob::Y),
 					(uint16_t)(SwitchVal() * 2047),
 					pulseIn1Val,
 					pulseIn2Val,
-					cardIdVal,
 				};
 
 				int n = midiCC.update(values);
@@ -157,6 +177,18 @@ public:
 			audioIn2ZCR = (uint16_t)(zcrCount * 50 > 4095 ? 4095 : zcrCount * 50);
 			zcrCount = 0;
 			zcrWindowCount = 0;
+		}
+
+		// Accumulate CV inputs for averaging (reduces noise on floating inputs)
+		cvIn1Accum += CVIn1();
+		cvIn2Accum += CVIn2();
+		cvAccumCount++;
+		if (cvAccumCount >= 480) {  // average over 10ms at 48kHz
+			cvIn1Avg = cvIn1Accum / cvAccumCount;
+			cvIn2Avg = cvIn2Accum / cvAccumCount;
+			cvIn1Accum = 0;
+			cvIn2Accum = 0;
+			cvAccumCount = 0;
 		}
 
 		// Read knob values (0-4095)
