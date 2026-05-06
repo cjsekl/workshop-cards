@@ -1,0 +1,14 @@
+{
+  "midi_input": {
+    "port_pattern": "Workshop|Computer Card|MIDI CC"
+  },
+  "midi_output": {
+    "port_pattern": "ZOOM MS Plus Series|ZOOM MS"
+  },
+  "device_id": null,
+  "mappings": [
+    {"cc": 34, "slot": 0, "param": 2, "scale": [0, 127], "description": "Main Knob -> Slot 0 Knob 1"},
+    {"cc": 35, "slot": 0, "param": 3, "scale": [0, 127], "description": "Knob X -> Slot 0 Knob 2"},
+    {"cc": 36, "slot": 0, "param": 4, "scale": [0, 127], "description": "Knob Y -> Slot 0 Knob 3"}
+  ]
+}
